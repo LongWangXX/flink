@@ -563,8 +563,10 @@ object AggregateUtil extends Enumeration {
       definition,
       callContext,
       classOf[PlannerBase].getClassLoader,
+      // currently, aggregate functions have no access to FlinkContext
+      null,
       null
-    ) // currently, aggregate functions have no access to configuration
+    )
     val inference = udf.getTypeInference(dataTypeFactory)
 
     // enrich argument types with conversion class
@@ -883,7 +885,7 @@ object AggregateUtil extends Enumeration {
         // ordered by type root definition
         case CHAR | VARCHAR | BOOLEAN | DECIMAL | TINYINT | SMALLINT | INTEGER | BIGINT | FLOAT |
             DOUBLE | DATE | TIME_WITHOUT_TIME_ZONE | TIMESTAMP_WITHOUT_TIME_ZONE |
-            TIMESTAMP_WITH_LOCAL_TIME_ZONE | INTERVAL_YEAR_MONTH | INTERVAL_DAY_TIME =>
+            TIMESTAMP_WITH_LOCAL_TIME_ZONE | INTERVAL_YEAR_MONTH | INTERVAL_DAY_TIME | ARRAY =>
           argTypes(0)
         case t =>
           throw new TableException(

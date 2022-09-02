@@ -23,7 +23,10 @@ import org.apache.flink.api.scala._
 import org.apache.flink.api.scala.typeutils.Types
 import org.apache.flink.table.api.{TableDescriptor, _}
 import org.apache.flink.table.api.bridge.scala._
+import org.apache.flink.table.api.config.ExecutionConfigOptions
+import org.apache.flink.table.api.config.ExecutionConfigOptions.LegacyCastBehaviour
 import org.apache.flink.table.api.internal.TableEnvironmentInternal
+import org.apache.flink.table.catalog.CatalogDatabaseImpl
 import org.apache.flink.table.data.{GenericRowData, MapData, RowData}
 import org.apache.flink.table.planner.factories.TestValuesTableFactory
 import org.apache.flink.table.planner.runtime.utils._
@@ -49,6 +52,22 @@ class CalcITCase extends StreamingTestBase {
 
   @Rule
   def usesLegacyRows: LegacyRowResource = LegacyRowResource.INSTANCE
+
+  @Test
+  def testSelectWithLegacyCastIntToDate(): Unit = {
+    tEnv.getConfig.getConfiguration
+      .set(ExecutionConfigOptions.TABLE_EXEC_LEGACY_CAST_BEHAVIOUR, LegacyCastBehaviour.ENABLED)
+
+    val result = tEnv
+      .sqlQuery("SELECT CASE WHEN true THEN CAST(2 AS INT) ELSE CAST('2017-12-11' AS DATE) END")
+      .toAppendStream[Row]
+    val sink = new TestingAppendSink
+    result.addSink(sink)
+    env.execute()
+
+    val expected = List("1970-01-03")
+    assertEquals(expected.sorted, sink.getAppendResults.sorted)
+  }
 
   @Test
   def testCastNumericToBooleanInCondition(): Unit = {
@@ -648,5 +667,51 @@ class CalcITCase extends StreamingTestBase {
     val expected =
       List("HC809", "H389N     ")
     assertEquals(expected.sorted, sink.getAppendResults.sorted)
+  }
+
+  @Test
+  def testMultipleCoalesces(): Unit = {
+    val result = tEnv
+      .sqlQuery(
+        "SELECT COALESCE(1),\n" +
+          "COALESCE(1, 2),\n" +
+          "COALESCE(cast(NULL as int), 2),\n" +
+          "COALESCE(1, cast(NULL as int)),\n" +
+          "COALESCE(cast(NULL as int), cast(NULL as int), 3),\n" +
+          "COALESCE(4, cast(NULL as int), cast(NULL as int), cast(NULL as int)),\n" +
+          "COALESCE('1'),\n" +
+          "COALESCE('1', '23'),\n" +
+          "COALESCE(cast(NULL as varchar), '2'),\n" +
+          "COALESCE('1', cast(NULL as varchar)),\n" +
+          "COALESCE(cast(NULL as varchar), cast(NULL as varchar), '3'),\n" +
+          "COALESCE('4', cast(NULL as varchar), cast(NULL as varchar), cast(NULL as varchar)),\n" +
+          "COALESCE(1.0),\n" +
+          "COALESCE(1.0, 2),\n" +
+          "COALESCE(cast(NULL as double), 2.0),\n" +
+          "COALESCE(cast(NULL as double), 2.0, 3.0),\n" +
+          "COALESCE(2.0, cast(NULL as double), 3.0),\n" +
+          "COALESCE(cast(NULL as double), cast(NULL as double))")
+      .execute()
+      .collect()
+      .toList
+    TestBaseUtils.compareResultAsText(result, "1,1,2,1,3,4,1,1,2,1,3,4,1.0,1.0,2.0,2.0,2.0,null")
+  }
+
+  @Test
+  def testCurrentDatabase(): Unit = {
+    val result1 = tEnv.sqlQuery("SELECT CURRENT_DATABASE()").execute().collect().toList
+    assertEquals(Seq(row(tEnv.getCurrentDatabase)), result1)
+
+    // switch to another database
+    tEnv
+      .getCatalog(tEnv.getCurrentCatalog)
+      .get()
+      .createDatabase(
+        "db1",
+        new CatalogDatabaseImpl(new util.HashMap[String, String](), "db1"),
+        false)
+    tEnv.useDatabase("db1")
+    val result2 = tEnv.sqlQuery("SELECT CURRENT_DATABASE()").execute().collect().toList
+    assertEquals(Seq(row(tEnv.getCurrentDatabase)), result2)
   }
 }

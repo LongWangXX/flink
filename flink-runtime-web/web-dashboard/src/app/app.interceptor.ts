@@ -21,9 +21,8 @@ import { Injectable, Injector } from '@angular/core';
 import { Observable, throwError } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 
+import { StatusService } from '@flink-runtime-web/services';
 import { NzNotificationService, NzNotificationDataOptions } from 'ng-zorro-antd/notification';
-
-import { StatusService } from 'services';
 
 @Injectable()
 export class AppInterceptor implements HttpInterceptor {
@@ -38,7 +37,7 @@ export class AppInterceptor implements HttpInterceptor {
       nzStyle: { width: 'auto', 'white-space': 'pre-wrap' }
     };
 
-    return next.handle(req).pipe(
+    return next.handle(req.clone({ withCredentials: true })).pipe(
       catchError(res => {
         const errorMessage = res && res.error && res.error.errors && res.error.errors[0];
         if (

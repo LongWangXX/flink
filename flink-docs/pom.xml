@@ -26,7 +26,6 @@ under the License.
 		<groupId>org.apache.flink</groupId>
 		<artifactId>flink-parent</artifactId>
 		<version>1.16-SNAPSHOT</version>
-		<relativePath>..</relativePath>
 	</parent>
 
 	<artifactId>flink-docs</artifactId>
@@ -42,7 +41,7 @@ under the License.
 		<dependency>
 			<groupId>org.apache.flink</groupId>
 			<artifactId>flink-shaded-swagger</artifactId>
-			<version>15.0</version>
+			<version>${flink.shaded.version}</version>
 		</dependency>
 		<dependency>
 			<groupId>org.apache.flink</groupId>
@@ -174,6 +173,19 @@ under the License.
             <version>${project.version}</version>
         </dependency>
 
+		<dependency>
+			<groupId>org.apache.flink</groupId>
+			<artifactId>flink-sql-gateway</artifactId>
+			<version>${project.version}</version>
+		</dependency>
+
+		<dependency>
+			<groupId>org.apache.flink</groupId>
+			<artifactId>flink-sql-gateway</artifactId>
+			<version>${project.version}</version>
+			<type>test-jar</type>
+		</dependency>
+
         <dependency>
 			<!-- Used for parsing HTML -->
 			<groupId>org.jsoup</groupId>
@@ -253,11 +265,19 @@ under the License.
 								<configuration>
 									<target>
 										<mkdir dir="${rootDir}/${generated.docs.dir}"/>
-										<java classname="org.apache.flink.docs.rest.RestAPIDocGenerator" fork="true" failonerror="true">
+										<java classname="org.apache.flink.docs.rest.RuntimeRestAPIDocGenerator" fork="true" failonerror="true">
 											<classpath refid="maven.compile.classpath"/>
 											<arg value="${rootDir}/${generated.docs.dir}/"/>
 										</java>
-										<java classname="org.apache.flink.docs.rest.OpenApiSpecGenerator" fork="true" failonerror="true">
+										<java classname="org.apache.flink.docs.rest.RuntimeOpenApiSpecGenerator" fork="true" failonerror="true">
+											<classpath refid="maven.compile.classpath"/>
+											<arg value="${rootDir}/${generated.static.dir}/"/>
+										</java>
+										<java classname="org.apache.flink.docs.rest.SqlGatewayRestAPIDocGenerator" fork="true" failonerror="true">
+											<classpath refid="maven.compile.classpath"/>
+											<arg value="${rootDir}/${generated.docs.dir}/"/>
+										</java>
+										<java classname="org.apache.flink.docs.rest.SqlGatewayOpenApiSpecGenerator" fork="true" failonerror="true">
 											<classpath refid="maven.compile.classpath"/>
 											<arg value="${rootDir}/${generated.static.dir}/"/>
 										</java>

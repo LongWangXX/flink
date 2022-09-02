@@ -86,6 +86,7 @@ import static org.apache.flink.table.types.inference.TypeStrategies.matchFamily;
 import static org.apache.flink.table.types.inference.TypeStrategies.nullableIfAllArgs;
 import static org.apache.flink.table.types.inference.TypeStrategies.nullableIfArgs;
 import static org.apache.flink.table.types.inference.TypeStrategies.varyingString;
+import static org.apache.flink.table.types.inference.strategies.SpecificInputTypeStrategies.ARRAY_ELEMENT_ARG;
 import static org.apache.flink.table.types.inference.strategies.SpecificInputTypeStrategies.JSON_ARGUMENT;
 import static org.apache.flink.table.types.inference.strategies.SpecificInputTypeStrategies.TWO_EQUALS_COMPARABLE;
 import static org.apache.flink.table.types.inference.strategies.SpecificInputTypeStrategies.TWO_FULLY_COMPARABLE;
@@ -122,10 +123,8 @@ public final class BuiltInFunctionDefinitions {
                     .kind(SCALAR)
                     .inputTypeStrategy(
                             sequence(
-                                    new String[] {"input", "null_replacement"},
-                                    new ArgumentTypeStrategy[] {
-                                        COMMON_ARG_NULLABLE, COMMON_ARG_NULLABLE
-                                    }))
+                                    Arrays.asList("input", "null_replacement"),
+                                    Arrays.asList(COMMON_ARG_NULLABLE, COMMON_ARG_NULLABLE)))
                     .outputTypeStrategy(SpecificTypeStrategies.IF_NULL)
                     .runtimeClass("org.apache.flink.table.runtime.functions.scalar.IfNullFunction")
                     .build();
@@ -148,6 +147,22 @@ public final class BuiltInFunctionDefinitions {
                     .outputTypeStrategy(nullableIfAllArgs(COMMON))
                     .runtimeClass(
                             "org.apache.flink.table.runtime.functions.scalar.CoalesceFunction")
+                    .build();
+
+    public static final BuiltInFunctionDefinition ARRAY_CONTAINS =
+            BuiltInFunctionDefinition.newBuilder()
+                    .name("ARRAY_CONTAINS")
+                    .kind(SCALAR)
+                    .inputTypeStrategy(
+                            sequence(
+                                    Arrays.asList("haystack", "needle"),
+                                    Arrays.asList(
+                                            logical(LogicalTypeRoot.ARRAY), ARRAY_ELEMENT_ARG)))
+                    .outputTypeStrategy(
+                            nullableIfArgs(
+                                    ConstantArgumentCount.of(0), explicit(DataTypes.BOOLEAN())))
+                    .runtimeClass(
+                            "org.apache.flink.table.runtime.functions.scalar.ArrayContainsFunction")
                     .build();
 
     public static final BuiltInFunctionDefinition INTERNAL_REPLICATE_ROWS =
@@ -395,6 +410,20 @@ public final class BuiltInFunctionDefinitions {
                     .outputTypeStrategy(TypeStrategies.aggArg0(t -> t, true))
                     .build();
 
+    public static final BuiltInFunctionDefinition FIRST_VALUE =
+            BuiltInFunctionDefinition.newBuilder()
+                    .name("first_value")
+                    .kind(AGGREGATE)
+                    .outputTypeStrategy(TypeStrategies.aggArg0(t -> t, true))
+                    .build();
+
+    public static final BuiltInFunctionDefinition LAST_VALUE =
+            BuiltInFunctionDefinition.newBuilder()
+                    .name("last_value")
+                    .kind(AGGREGATE)
+                    .outputTypeStrategy(TypeStrategies.aggArg0(t -> t, true))
+                    .build();
+
     public static final BuiltInFunctionDefinition SUM =
             BuiltInFunctionDefinition.newBuilder()
                     .name("sum")
@@ -526,6 +555,22 @@ public final class BuiltInFunctionDefinitions {
     public static final BuiltInFunctionDefinition SUBSTRING =
             BuiltInFunctionDefinition.newBuilder()
                     .name("substring")
+                    .kind(SCALAR)
+                    .inputTypeStrategy(
+                            or(
+                                    sequence(
+                                            logical(LogicalTypeFamily.CHARACTER_STRING),
+                                            logical(LogicalTypeRoot.INTEGER)),
+                                    sequence(
+                                            logical(LogicalTypeFamily.CHARACTER_STRING),
+                                            logical(LogicalTypeRoot.INTEGER),
+                                            logical(LogicalTypeRoot.INTEGER))))
+                    .outputTypeStrategy(nullableIfArgs(varyingString(argument(0))))
+                    .build();
+
+    public static final BuiltInFunctionDefinition SUBSTR =
+            BuiltInFunctionDefinition.newBuilder()
+                    .name("substr")
                     .kind(SCALAR)
                     .inputTypeStrategy(
                             or(
@@ -693,6 +738,109 @@ public final class BuiltInFunctionDefinitions {
                     .outputTypeStrategy(nullableIfArgs(explicit(DataTypes.STRING())))
                     .build();
 
+    public static final BuiltInFunctionDefinition ASCII =
+            BuiltInFunctionDefinition.newBuilder()
+                    .name("ascii")
+                    .kind(SCALAR)
+                    .inputTypeStrategy(sequence(logical(LogicalTypeFamily.CHARACTER_STRING)))
+                    .outputTypeStrategy(nullableIfArgs(explicit(DataTypes.TINYINT())))
+                    .build();
+
+    public static final BuiltInFunctionDefinition CHR =
+            BuiltInFunctionDefinition.newBuilder()
+                    .name("chr")
+                    .kind(SCALAR)
+                    .inputTypeStrategy(sequence(logical(LogicalTypeFamily.INTEGER_NUMERIC)))
+                    .outputTypeStrategy(nullableIfArgs(explicit(DataTypes.CHAR(1))))
+                    .build();
+
+    public static final BuiltInFunctionDefinition DECODE =
+            BuiltInFunctionDefinition.newBuilder()
+                    .name("decode")
+                    .kind(SCALAR)
+                    .inputTypeStrategy(
+                            sequence(
+                                    logical(LogicalTypeFamily.BINARY_STRING),
+                                    logical(LogicalTypeFamily.CHARACTER_STRING)))
+                    .outputTypeStrategy(nullableIfArgs(explicit(DataTypes.STRING())))
+                    .build();
+
+    public static final BuiltInFunctionDefinition ENCODE =
+            BuiltInFunctionDefinition.newBuilder()
+                    .name("encode")
+                    .kind(SCALAR)
+                    .inputTypeStrategy(
+                            sequence(
+                                    logical(LogicalTypeFamily.CHARACTER_STRING),
+                                    logical(LogicalTypeFamily.CHARACTER_STRING)))
+                    .outputTypeStrategy(nullableIfArgs(explicit(DataTypes.BYTES())))
+                    .build();
+
+    public static final BuiltInFunctionDefinition LEFT =
+            BuiltInFunctionDefinition.newBuilder()
+                    .name("left")
+                    .kind(SCALAR)
+                    .inputTypeStrategy(
+                            sequence(
+                                    logical(LogicalTypeFamily.CHARACTER_STRING),
+                                    logical(LogicalTypeFamily.INTEGER_NUMERIC)))
+                    .outputTypeStrategy(nullableIfArgs(varyingString(argument(0))))
+                    .build();
+
+    public static final BuiltInFunctionDefinition RIGHT =
+            BuiltInFunctionDefinition.newBuilder()
+                    .name("right")
+                    .kind(SCALAR)
+                    .inputTypeStrategy(
+                            sequence(
+                                    logical(LogicalTypeFamily.CHARACTER_STRING),
+                                    logical(LogicalTypeFamily.INTEGER_NUMERIC)))
+                    .outputTypeStrategy(nullableIfArgs(varyingString(argument(0))))
+                    .build();
+
+    public static final BuiltInFunctionDefinition INSTR =
+            BuiltInFunctionDefinition.newBuilder()
+                    .name("instr")
+                    .kind(SCALAR)
+                    .inputTypeStrategy(
+                            sequence(
+                                    logical(LogicalTypeFamily.CHARACTER_STRING),
+                                    logical(LogicalTypeFamily.CHARACTER_STRING)))
+                    .outputTypeStrategy(nullableIfArgs(explicit(INT())))
+                    .build();
+
+    public static final BuiltInFunctionDefinition LOCATE =
+            BuiltInFunctionDefinition.newBuilder()
+                    .name("locate")
+                    .kind(SCALAR)
+                    .inputTypeStrategy(
+                            or(
+                                    sequence(
+                                            logical(LogicalTypeFamily.CHARACTER_STRING),
+                                            logical(LogicalTypeFamily.CHARACTER_STRING)),
+                                    sequence(
+                                            logical(LogicalTypeFamily.CHARACTER_STRING),
+                                            logical(LogicalTypeFamily.CHARACTER_STRING),
+                                            logical(LogicalTypeFamily.INTEGER_NUMERIC))))
+                    .outputTypeStrategy(nullableIfArgs(explicit(INT())))
+                    .build();
+
+    public static final BuiltInFunctionDefinition PARSE_URL =
+            BuiltInFunctionDefinition.newBuilder()
+                    .name("parseUrl")
+                    .kind(SCALAR)
+                    .inputTypeStrategy(
+                            or(
+                                    sequence(
+                                            logical(LogicalTypeFamily.CHARACTER_STRING),
+                                            logical(LogicalTypeFamily.CHARACTER_STRING)),
+                                    sequence(
+                                            logical(LogicalTypeFamily.CHARACTER_STRING),
+                                            logical(LogicalTypeFamily.CHARACTER_STRING),
+                                            logical(LogicalTypeFamily.CHARACTER_STRING))))
+                    .outputTypeStrategy(nullableIfArgs(explicit(DataTypes.STRING())))
+                    .build();
+
     public static final BuiltInFunctionDefinition UUID =
             BuiltInFunctionDefinition.newBuilder()
                     .name("uuid")
@@ -739,6 +887,17 @@ public final class BuiltInFunctionDefinitions {
                     .outputTypeStrategy(nullableIfArgs(explicit(DataTypes.STRING())))
                     .build();
 
+    public static final BuiltInFunctionDefinition REGEXP =
+            BuiltInFunctionDefinition.newBuilder()
+                    .name("regexp")
+                    .kind(SCALAR)
+                    .inputTypeStrategy(
+                            sequence(
+                                    logical(LogicalTypeFamily.CHARACTER_STRING),
+                                    logical(LogicalTypeFamily.CHARACTER_STRING)))
+                    .outputTypeStrategy(nullableIfArgs(explicit(DataTypes.BOOLEAN())))
+                    .build();
+
     public static final BuiltInFunctionDefinition REGEXP_REPLACE =
             BuiltInFunctionDefinition.newBuilder()
                     .name("regexpReplace")
@@ -749,6 +908,43 @@ public final class BuiltInFunctionDefinitions {
                                     logical(LogicalTypeFamily.CHARACTER_STRING),
                                     logical(LogicalTypeFamily.CHARACTER_STRING)))
                     .outputTypeStrategy(nullableIfArgs(explicit(DataTypes.STRING())))
+                    .build();
+
+    public static final BuiltInFunctionDefinition REVERSE =
+            BuiltInFunctionDefinition.newBuilder()
+                    .name("reverse")
+                    .kind(SCALAR)
+                    .inputTypeStrategy(sequence(logical(LogicalTypeFamily.CHARACTER_STRING)))
+                    .outputTypeStrategy(nullableIfArgs(explicit(DataTypes.STRING())))
+                    .build();
+
+    public static final BuiltInFunctionDefinition SPLIT_INDEX =
+            BuiltInFunctionDefinition.newBuilder()
+                    .name("splitIndex")
+                    .kind(SCALAR)
+                    .inputTypeStrategy(
+                            sequence(
+                                    logical(LogicalTypeFamily.CHARACTER_STRING),
+                                    logical(LogicalTypeFamily.CHARACTER_STRING),
+                                    logical(LogicalTypeRoot.INTEGER)))
+                    .outputTypeStrategy(nullableIfArgs(explicit(DataTypes.STRING())))
+                    .build();
+
+    public static final BuiltInFunctionDefinition STR_TO_MAP =
+            BuiltInFunctionDefinition.newBuilder()
+                    .name("strToMap")
+                    .kind(SCALAR)
+                    .inputTypeStrategy(
+                            or(
+                                    sequence(logical(LogicalTypeFamily.CHARACTER_STRING)),
+                                    sequence(
+                                            logical(LogicalTypeFamily.CHARACTER_STRING),
+                                            logical(LogicalTypeFamily.CHARACTER_STRING),
+                                            logical(LogicalTypeFamily.CHARACTER_STRING))))
+                    .outputTypeStrategy(
+                            nullableIfArgs(
+                                    explicit(
+                                            DataTypes.MAP(DataTypes.STRING(), DataTypes.STRING()))))
                     .build();
 
     // --------------------------------------------------------------------------------------------
@@ -1224,6 +1420,17 @@ public final class BuiltInFunctionDefinitions {
                     .build();
 
     // --------------------------------------------------------------------------------------------
+    // Catalog functions
+    // --------------------------------------------------------------------------------------------
+
+    public static final BuiltInFunctionDefinition CURRENT_DATABASE =
+            BuiltInFunctionDefinition.newBuilder()
+                    .name("currentDatabase")
+                    .kind(SCALAR)
+                    .outputTypeStrategy(explicit(STRING().notNull()))
+                    .build();
+
+    // --------------------------------------------------------------------------------------------
     // Time functions
     // --------------------------------------------------------------------------------------------
 
@@ -1319,6 +1526,20 @@ public final class BuiltInFunctionDefinitions {
                                     logical(LogicalTypeFamily.DATETIME)))
                     .outputTypeStrategy(nullableIfArgs(explicit(INT())))
                     .build();
+
+    public static final BuiltInFunctionDefinition FROM_UNIXTIME =
+            BuiltInFunctionDefinition.newBuilder()
+                    .name("fromUnixtime")
+                    .kind(SCALAR)
+                    .inputTypeStrategy(
+                            or(
+                                    sequence(logical(LogicalTypeFamily.NUMERIC)),
+                                    sequence(
+                                            logical(LogicalTypeFamily.NUMERIC),
+                                            logical(LogicalTypeFamily.CHARACTER_STRING))))
+                    .outputTypeStrategy(nullableIfArgs(explicit(STRING())))
+                    .build();
+
     public static final BuiltInFunctionDefinition TO_TIMESTAMP_LTZ =
             BuiltInFunctionDefinition.newBuilder()
                     .name("toTimestampLtz")

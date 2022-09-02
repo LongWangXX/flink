@@ -27,13 +27,13 @@ import unittest
 import uuid
 
 from pyflink.common import Configuration, ExecutionConfig, RestartStrategies
-from pyflink.common.serialization import JsonRowDeserializationSchema
 from pyflink.common.typeinfo import Types
 from pyflink.datastream import (StreamExecutionEnvironment, CheckpointConfig,
                                 CheckpointingMode, MemoryStateBackend, TimeCharacteristic,
                                 SlotSharingGroup)
-from pyflink.datastream.connectors import FlinkKafkaConsumer
+from pyflink.datastream.connectors.kafka import FlinkKafkaConsumer
 from pyflink.datastream.execution_mode import RuntimeExecutionMode
+from pyflink.datastream.formats.json import JsonRowDeserializationSchema
 from pyflink.datastream.functions import SourceFunction
 from pyflink.datastream.slot_sharing_group import MemorySize
 from pyflink.datastream.tests.test_util import DataStreamTestSinkFunction
@@ -466,7 +466,7 @@ class StreamExecutionEnvironmentTests(PyFlinkTestCase):
         import uuid
         requirements_txt_path = os.path.join(self.tempdir, str(uuid.uuid4()))
         with open(requirements_txt_path, 'w') as f:
-            f.write("cloudpickle==1.2.2")
+            f.write("cloudpickle==2.1.0")
         self.env.set_python_requirements(requirements_txt_path)
 
         def check_requirements(i):

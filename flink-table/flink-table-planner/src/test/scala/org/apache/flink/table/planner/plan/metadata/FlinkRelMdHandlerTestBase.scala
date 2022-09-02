@@ -105,7 +105,7 @@ class FlinkRelMdHandlerTestBase {
 
   @Before
   def setUp(): Unit = {
-    relBuilder = plannerContext.createRelBuilder("default_catalog", "default_database")
+    relBuilder = plannerContext.createRelBuilder()
 
     rexBuilder = relBuilder.getRexBuilder
     cluster = relBuilder.getCluster
@@ -283,8 +283,8 @@ class FlinkRelMdHandlerTestBase {
   protected lazy val logicalWatermarkAssigner: RelNode = {
     val scan = relBuilder.scan("TemporalTable2").build()
     val flinkContext = unwrapContext(cluster)
-    val watermarkRexNode = flinkContext.getSqlExprToRexConverterFactory
-      .create(scan.getTable.getRowType, null)
+    val watermarkRexNode = flinkContext.getRexFactory
+      .createSqlToRexConverter(scan.getTable.getRowType, null)
       .convertToRexNode("rowtime - INTERVAL '10' SECOND")
 
     relBuilder.push(scan)
@@ -2595,8 +2595,16 @@ class FlinkRelMdHandlerTestBase {
 
   // SELECT * FROM student AS T JOIN TemporalTable
   // FOR SYSTEM_TIME AS OF T.proctime AS D ON T.a = D.id
-  protected lazy val (batchLookupJoin, streamLookupJoin) = {
-    val temporalTableSource = new TestTemporalTable
+  protected lazy val (batchLookupJoin, streamLookupJoin) = getLookupJoins()
+
+  protected lazy val (batchLookupJoinWithPk, streamLookupJoinWithPk) = getLookupJoins(Array("id"))
+
+  protected lazy val (batchLookupJoinNotContainsPk, streamLookupJoinNotContainsPk) = getLookupJoins(
+    Array("name"))
+
+  protected def getLookupJoins(
+      primaryKeys: Array[String] = Array()): (BatchPhysicalLookupJoin, StreamPhysicalLookupJoin) = {
+    val temporalTableSource = new TestTemporalTable(keys = primaryKeys)
     val batchSourceOp = new TableSourceQueryOperation[RowData](temporalTableSource, true)
     val batchScan = relBuilder.queryOperation(batchSourceOp).build().asInstanceOf[TableScan]
     val batchLookupJoin = new BatchPhysicalLookupJoin(
@@ -2617,7 +2625,9 @@ class FlinkRelMdHandlerTestBase {
       streamScan.getTable,
       None,
       JoinInfo.of(ImmutableIntList.of(0), ImmutableIntList.of(0)),
-      JoinRelType.INNER
+      JoinRelType.INNER,
+      Option.empty[RelHint],
+      false
     )
     (batchLookupJoin, streamLookupJoin)
   }

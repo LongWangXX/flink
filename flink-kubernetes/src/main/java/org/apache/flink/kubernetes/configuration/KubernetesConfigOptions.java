@@ -331,6 +331,18 @@ public class KubernetesConfigOptions {
                             "The user-specified annotations that are set to the TaskManager pod. The value could be "
                                     + "in the form of a1:v1,a2:v2");
 
+    public static final ConfigOption<String> KUBERNETES_JOBMANAGER_ENTRYPOINT_ARGS =
+            key("kubernetes.jobmanager.entrypoint.args")
+                    .stringType()
+                    .defaultValue("")
+                    .withDescription("Extra arguments used when starting the job manager.");
+
+    public static final ConfigOption<String> KUBERNETES_TASKMANAGER_ENTRYPOINT_ARGS =
+            key("kubernetes.taskmanager.entrypoint.args")
+                    .stringType()
+                    .defaultValue("")
+                    .withDescription("Extra arguments used when starting the task manager.");
+
     public static final ConfigOption<List<Map<String, String>>> JOB_MANAGER_TOLERATIONS =
             key("kubernetes.jobmanager.tolerations")
                     .mapType()
@@ -497,6 +509,26 @@ public class KubernetesConfigOptions {
                     .withDescription(
                             "Whether to enable HostNetwork mode. "
                                     + "The HostNetwork allows the pod could use the node network namespace instead of the individual pod network namespace. Please note that the JobManager service account should have the permission to update Kubernetes service.");
+
+    public static final ConfigOption<String> KUBERNETES_CLIENT_USER_AGENT =
+            key("kubernetes.client.user-agent")
+                    .stringType()
+                    .defaultValue("flink")
+                    .withDescription(
+                            "The user agent to be used for contacting with Kubernetes APIServer.");
+
+    /**
+     * This will only be used to support blocklist mechanism, which is experimental currently, so we
+     * do not want to expose this option in the documentation.
+     */
+    @Documentation.ExcludeFromDocumentation
+    public static final ConfigOption<String> KUBERNETES_NODE_NAME_LABEL =
+            key("kubernetes.node-name-label")
+                    .stringType()
+                    .defaultValue("kubernetes.io/hostname")
+                    .withDescription(
+                            "The node label whose value is the same as the node name. "
+                                    + "Currently, this will only be used to set the node affinity of TM pods to avoid being scheduled on blocked nodes.");
 
     private static String getDefaultFlinkImage() {
         // The default container image that ties to the exact needed versions of both Flink and

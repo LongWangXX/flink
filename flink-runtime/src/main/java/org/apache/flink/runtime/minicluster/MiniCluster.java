@@ -31,7 +31,6 @@ import org.apache.flink.configuration.Configuration;
 import org.apache.flink.configuration.ConfigurationUtils;
 import org.apache.flink.configuration.HighAvailabilityOptions;
 import org.apache.flink.configuration.IllegalConfigurationException;
-import org.apache.flink.configuration.SecurityOptions;
 import org.apache.flink.core.execution.SavepointFormatType;
 import org.apache.flink.runtime.blob.BlobCacheService;
 import org.apache.flink.runtime.blob.BlobClient;
@@ -54,7 +53,6 @@ import org.apache.flink.runtime.entrypoint.component.DispatcherResourceManagerCo
 import org.apache.flink.runtime.executiongraph.AccessExecutionGraph;
 import org.apache.flink.runtime.executiongraph.ArchivedExecutionGraph;
 import org.apache.flink.runtime.externalresource.ExternalResourceInfoProvider;
-import org.apache.flink.runtime.hadoop.HadoopDependency;
 import org.apache.flink.runtime.heartbeat.HeartbeatServices;
 import org.apache.flink.runtime.highavailability.HighAvailabilityServices;
 import org.apache.flink.runtime.highavailability.HighAvailabilityServicesFactory;
@@ -62,6 +60,8 @@ import org.apache.flink.runtime.highavailability.HighAvailabilityServicesUtils;
 import org.apache.flink.runtime.highavailability.nonha.embedded.EmbeddedHaServices;
 import org.apache.flink.runtime.highavailability.nonha.embedded.EmbeddedHaServicesWithLeadershipControl;
 import org.apache.flink.runtime.highavailability.nonha.embedded.HaLeadershipControl;
+import org.apache.flink.runtime.io.network.partition.ClusterPartitionManager;
+import org.apache.flink.runtime.jobgraph.IntermediateDataSetID;
 import org.apache.flink.runtime.jobgraph.JobGraph;
 import org.apache.flink.runtime.jobgraph.OperatorID;
 import org.apache.flink.runtime.jobgraph.RestoreMode;
@@ -90,14 +90,14 @@ import org.apache.flink.runtime.rpc.RpcSystem;
 import org.apache.flink.runtime.rpc.RpcUtils;
 import org.apache.flink.runtime.scheduler.ExecutionGraphInfo;
 import org.apache.flink.runtime.security.token.DelegationTokenManager;
-import org.apache.flink.runtime.security.token.KerberosDelegationTokenManager;
-import org.apache.flink.runtime.security.token.NoOpDelegationTokenManager;
+import org.apache.flink.runtime.security.token.KerberosDelegationTokenManagerFactory;
 import org.apache.flink.runtime.taskexecutor.TaskExecutor;
 import org.apache.flink.runtime.taskexecutor.TaskManagerRunner;
 import org.apache.flink.runtime.webmonitor.retriever.LeaderRetriever;
 import org.apache.flink.runtime.webmonitor.retriever.MetricQueryServiceRetriever;
 import org.apache.flink.runtime.webmonitor.retriever.impl.RpcGatewayRetriever;
 import org.apache.flink.runtime.webmonitor.retriever.impl.RpcMetricQueryServiceRetriever;
+import org.apache.flink.util.AbstractID;
 import org.apache.flink.util.AutoCloseableAsync;
 import org.apache.flink.util.ExceptionUtils;
 import org.apache.flink.util.ExecutorUtils;
@@ -126,8 +126,10 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
@@ -140,6 +142,7 @@ import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
+import static org.apache.flink.configuration.ClusterOptions.PROCESS_WORKING_DIR_BASE;
 import static org.apache.flink.util.Preconditions.checkNotNull;
 import static org.apache.flink.util.Preconditions.checkState;
 
@@ -324,7 +327,7 @@ public class MiniCluster implements AutoCloseableAsync {
                         WorkingDirectory.create(
                                 ClusterEntrypointUtils.generateWorkingDirectoryFile(
                                         configuration,
-                                        Optional.empty(),
+                                        Optional.of(PROCESS_WORKING_DIR_BASE),
                                         "minicluster_" + ResourceID.generate()));
 
                 initializeIOFormatClasses(configuration);
@@ -425,11 +428,11 @@ public class MiniCluster implements AutoCloseableAsync {
                 heartbeatServices = HeartbeatServices.fromConfiguration(configuration);
 
                 delegationTokenManager =
-                        configuration.getBoolean(SecurityOptions.KERBEROS_FETCH_DELEGATION_TOKEN)
-                                        && HadoopDependency.isHadoopCommonOnClasspath(
-                                                getClass().getClassLoader())
-                                ? new KerberosDelegationTokenManager(configuration)
-                                : new NoOpDelegationTokenManager();
+                        KerberosDelegationTokenManagerFactory.create(
+                                getClass().getClassLoader(),
+                                configuration,
+                                commonRpcService.getScheduledExecutor(),
+                                ioExecutor);
 
                 blobCacheService =
                         BlobUtils.createBlobCacheService(
@@ -1318,6 +1321,26 @@ public class MiniCluster implements AutoCloseableAsync {
         } catch (ClassNotFoundException | IOException e) {
             throw new IllegalStateException("Unable to clone the provided JobGraph.", e);
         }
+    }
+
+    public CompletableFuture<Void> invalidateClusterDataset(AbstractID clusterDatasetId) {
+        return resourceManagerGatewayRetriever
+                .getFuture()
+                .thenApply(
+                        resourceManagerGateway ->
+                                resourceManagerGateway.releaseClusterPartitions(
+                                        new IntermediateDataSetID(clusterDatasetId)))
+                .thenCompose(Function.identity());
+    }
+
+    public CompletableFuture<Set<AbstractID>> listCompletedClusterDatasetIds() {
+        return resourceManagerGatewayRetriever
+                .getFuture()
+                .thenApply(ClusterPartitionManager::listDataSets)
+                .thenCompose(
+                        metaInfoMapFuture ->
+                                metaInfoMapFuture.thenApply(
+                                        metaInfoMap -> new HashSet<>(metaInfoMap.keySet())));
     }
 
     /** Internal factory for {@link RpcService}. */

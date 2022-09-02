@@ -22,7 +22,7 @@ import org.apache.flink.annotation.Internal;
 import org.apache.flink.api.common.typeutils.TypeSerializer;
 import org.apache.flink.fnexecution.v1.FlinkFnApi;
 import org.apache.flink.python.env.process.ProcessPythonEnvironmentManager;
-import org.apache.flink.python.metric.FlinkMetricContainer;
+import org.apache.flink.python.metric.process.FlinkMetricContainer;
 import org.apache.flink.runtime.memory.MemoryManager;
 import org.apache.flink.runtime.state.KeyedStateBackend;
 import org.apache.flink.streaming.api.runners.python.beam.BeamPythonFunctionRunner;
@@ -69,13 +69,15 @@ public class BeamTablePythonFunctionRunner extends BeamPythonFunctionRunner {
                 environmentManager,
                 flinkMetricContainer,
                 keyedStateBackend,
+                null,
                 keySerializer,
                 namespaceSerializer,
                 null,
                 memoryManager,
                 managedMemoryFraction,
                 inputCoderDescriptor,
-                outputCoderDescriptor);
+                outputCoderDescriptor,
+                Collections.emptyMap());
         this.functionUrn = Preconditions.checkNotNull(functionUrn);
         this.userDefinedFunctionProto = Preconditions.checkNotNull(userDefinedFunctionProto);
     }
@@ -90,7 +92,7 @@ public class BeamTablePythonFunctionRunner extends BeamPythonFunctionRunner {
                                 RunnerApi.FunctionSpec.newBuilder()
                                         .setUrn(functionUrn)
                                         .setPayload(
-                                                org.apache.beam.vendor.grpc.v1p26p0.com.google
+                                                org.apache.beam.vendor.grpc.v1p43p2.com.google
                                                         .protobuf.ByteString.copyFrom(
                                                         userDefinedFunctionProto.toByteArray()))
                                         .build())

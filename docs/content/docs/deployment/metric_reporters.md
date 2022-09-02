@@ -36,7 +36,7 @@ Below is a list of parameters that are generally applicable to all reporters. Al
 
 {{< include_reporter_config "layouts/shortcodes/generated/metric_reporters_section.html" >}}
 
-All reporters must at least have either the `class` or `factory.class` property. Which property may/should be used depends on the reporter implementation. See the individual reporter configuration sections for more information.
+All reporter configurations must contain the `factory.class` property.
 Some reporters (referred to as `Scheduled`) allow specifying a reporting `interval`.
 
 Example reporter configuration that specifies multiple reporters:
@@ -49,15 +49,14 @@ metrics.reporter.my_jmx_reporter.port: 9020-9040
 metrics.reporter.my_jmx_reporter.scope.variables.excludes: job_id;task_attempt_num
 metrics.reporter.my_jmx_reporter.scope.variables.additional: cluster_name:my_test_cluster,tag_name:tag_value
 
-metrics.reporter.my_other_reporter.class: org.apache.flink.metrics.graphite.GraphiteReporter
+metrics.reporter.my_other_reporter.factory.class: org.apache.flink.metrics.graphite.GraphiteReporterFactory
 metrics.reporter.my_other_reporter.host: 192.168.1.1
 metrics.reporter.my_other_reporter.port: 10000
 ```
 
-**Important:** The jar containing the reporter must be accessible when Flink is started. Reporters that support the
- `factory.class` property can be loaded as [plugins]({{< ref "docs/deployment/filesystems/plugins" >}}). Otherwise the jar must be placed
- in the /lib folder. Reporters that are shipped with Flink (i.e., all reporters documented on this page) are available
- by default.
+**Important:** The jar containing the reporter must be accessible when Flink is started.
+ Reporters are loaded as [plugins]({{< ref "docs/deployment/filesystems/plugins" >}}).
+ All reporters documented on this page are available by default.
 
 You can write your own `Reporter` by implementing the `org.apache.flink.metrics.reporter.MetricReporter` interface.
 If the Reporter should send out reports regularly you have to implement the `Scheduled` interface as well.
@@ -180,7 +179,7 @@ Parameters:
 Example configuration:
 
 ```yaml
-metrics.reporter.prom.class: org.apache.flink.metrics.prometheus.PrometheusReporter
+metrics.reporter.prom.factory.class: org.apache.flink.metrics.prometheus.PrometheusReporterFactory
 ```
 
 Flink metric types are mapped to Prometheus metric types as follows: 
@@ -206,7 +205,7 @@ Parameters:
 Example configuration:
 
 ```yaml
-metrics.reporter.promgateway.class: org.apache.flink.metrics.prometheus.PrometheusPushGatewayReporter
+metrics.reporter.promgateway.factory.class: org.apache.flink.metrics.prometheus.PrometheusPushGatewayReporterFactory
 metrics.reporter.promgateway.hostUrl: http://localhost:9091
 metrics.reporter.promgateway.jobName: myJob
 metrics.reporter.promgateway.randomJobNameSuffix: true
@@ -246,6 +245,8 @@ Type: push/tags
 Note any variables in Flink metrics, such as `<host>`, `<job_name>`, `<tm_id>`, `<subtask_index>`, `<task_name>`, and `<operator_name>`,
 will be sent to Datadog as tags. Tags will look like `host:localhost` and `job_name:myjobname`.
 
+<span class="label label-danger">Note</span> For legacy reasons the reporter uses _both_ the metric identifier _and_ tags. This redundancy can be avoided by enabling `useLogicalIdentifier`.
+
 <span class="label label-info">Note</span> Histograms are exposed as a series of gauges following the naming convention of Datadog histograms (`<metric_name>.<aggregation>`).
 The `min` aggregation is reported by default, whereas `sum` is not available.
 In contrast to Datadog-provided Histograms the reported aggregations are not computed for a specific reporting interval.
@@ -253,23 +254,23 @@ In contrast to Datadog-provided Histograms the reported aggregations are not com
 Parameters:
 
 - `apikey` - the Datadog API key
-- `tags` - (optional) the global tags that will be applied to metrics when sending to Datadog. Tags should be separated by comma only
 - `proxyHost` - (optional) The proxy host to use when sending to Datadog.
 - `proxyPort` - (optional) The proxy port to use when sending to Datadog, defaults to 8080.
 - `dataCenter` - (optional) The data center (`EU`/`US`) to connect to, defaults to `US`.
 - `maxMetricsPerRequest` - (optional) The maximum number of metrics to include in each request, defaults to 2000.
+- `useLogicalIdentifier` -> (optional) Whether the reporter uses a logical metric identifier, defaults to `false`.
 
 Example configuration:
 
 ```yaml
 metrics.reporter.dghttp.factory.class: org.apache.flink.metrics.datadog.DatadogHttpReporterFactory
 metrics.reporter.dghttp.apikey: xxx
-metrics.reporter.dghttp.tags: myflinkapp,prod
 metrics.reporter.dghttp.proxyHost: my.web.proxy.com
 metrics.reporter.dghttp.proxyPort: 8080
 metrics.reporter.dghttp.dataCenter: US
 metrics.reporter.dghttp.maxMetricsPerRequest: 2000
 metrics.reporter.dghttp.interval: 60 SECONDS
+metrics.reporter.dghttp.useLogicalIdentifier: true
 ```
 
 

@@ -708,10 +708,12 @@ class TemporalTypesTest extends ExpressionTestBase {
     testSqlApi("CEIL(TIME '12:44:31' TO MINUTE)", "12:45:00")
     testSqlApi("CEIL(TIME '12:44:31' TO HOUR)", "13:00:00")
 
-    testSqlApi("FLOOR( DATE '2021-02-27' TO WEEK)", "2021-02-21")
-    testSqlApi("FLOOR( DATE '2021-03-01' TO WEEK)", "2021-02-28")
-    testSqlApi("CEIL( DATE '2021-02-27' TO WEEK)", "2021-02-28")
-    testSqlApi("CEIL( DATE '2021-03-01' TO WEEK)", "2021-03-07")
+    testSqlApi("FLOOR(DATE '2021-02-27' TO DAY)", "2021-02-27")
+    testSqlApi("FLOOR(DATE '2021-02-27' TO WEEK)", "2021-02-21")
+    testSqlApi("FLOOR(DATE '2021-03-01' TO WEEK)", "2021-02-28")
+    testSqlApi("CEIL(DATE '2021-02-27' TO DAY)", "2021-02-28")
+    testSqlApi("CEIL(DATE '2021-02-27' TO WEEK)", "2021-02-28")
+    testSqlApi("CEIL(DATE '2021-03-01' TO WEEK)", "2021-03-07")
     testSqlApi("CEIL(DATE '2018-01-02' TO DECADE)", "2020-01-01")
     testSqlApi("CEIL(DATE '2018-03-27' TO CENTURY)", "2101-01-01")
     testSqlApi("CEIL(DATE '2018-01-02' TO MILLENNIUM)", "3001-01-01")
@@ -838,7 +840,10 @@ class TemporalTypesTest extends ExpressionTestBase {
 
     testSqlApi("DATE_FORMAT(cast(NULL as varchar), 'yyyy/MM/dd HH:mm:ss')", nullable)
 
-    testSqlApi("FROM_UNIXTIME(cast(NULL as bigInt))", nullable)
+    testAllApis(
+      fromUnixtime(nullOf(DataTypes.BIGINT())),
+      "FROM_UNIXTIME(cast(NULL as bigInt))",
+      nullable)
 
     testSqlApi("TO_DATE(cast(NULL as varchar))", nullable)
 
@@ -884,9 +889,15 @@ class TemporalTypesTest extends ExpressionTestBase {
     val fmt3 = "yy-MM-dd HH-mm-ss"
     val sdf3 = new SimpleDateFormat(fmt3, Locale.US)
 
-    testSqlApi("from_unixtime(f21)", sdf1.format(new Timestamp(44000)))
-    testSqlApi(s"from_unixtime(f21, '$fmt2')", sdf2.format(new Timestamp(44000)))
-    testSqlApi(s"from_unixtime(f21, '$fmt3')", sdf3.format(new Timestamp(44000)))
+    testAllApis(fromUnixtime('f21), "from_unixtime(f21)", sdf1.format(new Timestamp(44000)))
+    testAllApis(
+      fromUnixtime('f21, fmt2),
+      s"from_unixtime(f21, '$fmt2')",
+      sdf2.format(new Timestamp(44000)))
+    testAllApis(
+      fromUnixtime('f21, fmt3),
+      s"from_unixtime(f21, '$fmt3')",
+      sdf3.format(new Timestamp(44000)))
 
     testSqlApi("from_unixtime(f22)", sdf1.format(new Timestamp(3000)))
     testSqlApi(s"from_unixtime(f22, '$fmt2')", sdf2.format(new Timestamp(3000)))

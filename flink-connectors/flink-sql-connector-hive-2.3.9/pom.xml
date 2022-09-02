@@ -27,7 +27,6 @@ under the License.
 		<groupId>org.apache.flink</groupId>
 		<artifactId>flink-connectors</artifactId>
 		<version>1.16-SNAPSHOT</version>
-		<relativePath>..</relativePath>
 	</parent>
 
 	<artifactId>flink-sql-connector-hive-2.3.9_${scala.binary.version}</artifactId>
@@ -105,6 +104,15 @@ under the License.
 									<shadedPattern>org.apache.flink.hive.shaded.com.google</shadedPattern>
 								</relocation>
 							</relocations>
+							<!-- Table planner also contains calcite dependency. Exclude to prevent class conflicts. -->
+							<filters>
+								<filter>
+									<artifact>org.apache.hive:hive-exec</artifact>
+									<excludes>
+										<exclude>org/apache/calcite/**</exclude>
+									</excludes>
+								</filter>
+							</filters>
 						</configuration>
 					</execution>
 				</executions>

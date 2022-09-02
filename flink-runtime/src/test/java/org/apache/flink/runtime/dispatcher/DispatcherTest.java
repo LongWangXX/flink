@@ -120,6 +120,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.BiConsumer;
 
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.greaterThan;
@@ -177,7 +178,7 @@ public class DispatcherTest extends AbstractDispatcherTest {
     @After
     public void tearDown() throws Exception {
         if (dispatcher != null) {
-            RpcUtils.terminateRpcEndpoint(dispatcher, TIMEOUT);
+            RpcUtils.terminateRpcEndpoint(dispatcher);
         }
         super.tearDown();
     }
@@ -556,7 +557,7 @@ public class DispatcherTest extends AbstractDispatcherTest {
                         .deserializeError(ClassLoader.getSystemClassLoader());
 
         // ensure correct exception type
-        assertThat(throwable, is(testFailure));
+        assertThat(throwable.getMessage(), equalTo(testFailure.getMessage()));
     }
 
     /** Test that {@link JobResult} is cached when the job finishes. */
@@ -589,9 +590,10 @@ public class DispatcherTest extends AbstractDispatcherTest {
         assertThat(
                 dispatcherGateway.requestJobStatus(failedJobId, TIMEOUT).get(),
                 equalTo(expectedState));
-        assertThat(
-                dispatcherGateway.requestExecutionGraphInfo(failedJobId, TIMEOUT).get(),
-                equalTo(failedExecutionGraphInfo));
+        final CompletableFuture<ExecutionGraphInfo> completableFutureCompletableFuture =
+                dispatcher.callAsyncInMainThread(
+                        () -> dispatcher.requestExecutionGraphInfo(failedJobId, TIMEOUT));
+        assertThat(completableFutureCompletableFuture.get(), is(failedExecutionGraphInfo));
     }
 
     @Test
@@ -663,13 +665,35 @@ public class DispatcherTest extends AbstractDispatcherTest {
         return new URI(completedCheckpointStorageLocation.getExternalPointer());
     }
 
-    /**
-     * Tests that the {@link Dispatcher} fails fatally if the recovered jobs cannot be started. See
-     * FLINK-9097.
-     */
     @Test
     public void testFatalErrorIfRecoveredJobsCannotBeStarted() throws Exception {
-        final FlinkException testException = new FlinkException("Test exception");
+        testJobManagerRunnerFailureResultingInFatalError(
+                (testingJobManagerRunner, actualError) ->
+                        testingJobManagerRunner.completeResultFuture(
+                                // Let the initialization of the JobManagerRunner fail
+                                JobManagerRunnerResult.forInitializationFailure(
+                                        new ExecutionGraphInfo(
+                                                ArchivedExecutionGraph
+                                                        .createSparseArchivedExecutionGraph(
+                                                                jobId,
+                                                                jobGraph.getName(),
+                                                                JobStatus.FAILED,
+                                                                actualError,
+                                                                jobGraph.getCheckpointingSettings(),
+                                                                1L)),
+                                        actualError)));
+    }
+
+    @Test
+    public void testFatalErrorIfSomeOtherErrorCausedTheJobMasterToFail() throws Exception {
+        testJobManagerRunnerFailureResultingInFatalError(
+                TestingJobManagerRunner::completeResultFutureExceptionally);
+    }
+
+    private void testJobManagerRunnerFailureResultingInFatalError(
+            BiConsumer<TestingJobManagerRunner, Exception> jobManagerRunnerWithErrorConsumer)
+            throws Exception {
+        final FlinkException testException = new FlinkException("Expected test exception");
         jobMasterLeaderElectionService.isLeader(UUID.randomUUID());
 
         final TestingJobMasterServiceLeadershipRunnerFactory jobManagerRunnerFactory =
@@ -685,21 +709,8 @@ public class DispatcherTest extends AbstractDispatcherTest {
         final TestingFatalErrorHandler fatalErrorHandler =
                 testingFatalErrorHandlerResource.getFatalErrorHandler();
 
-        final TestingJobManagerRunner testingJobManagerRunner =
-                jobManagerRunnerFactory.takeCreatedJobManagerRunner();
-
-        // Let the initialization of the JobManagerRunner fail
-        testingJobManagerRunner.completeResultFuture(
-                JobManagerRunnerResult.forInitializationFailure(
-                        new ExecutionGraphInfo(
-                                ArchivedExecutionGraph.createSparseArchivedExecutionGraph(
-                                        jobId,
-                                        jobGraph.getName(),
-                                        JobStatus.FAILED,
-                                        testException,
-                                        jobGraph.getCheckpointingSettings(),
-                                        1L)),
-                        testException));
+        jobManagerRunnerWithErrorConsumer.accept(
+                jobManagerRunnerFactory.takeCreatedJobManagerRunner(), testException);
 
         final Throwable error =
                 fatalErrorHandler
