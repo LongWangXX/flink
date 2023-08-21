@@ -97,7 +97,7 @@ public class YarnConfigOptions {
                                             "Number of ApplicationMaster restarts. By default, the value will be set to 1. "
                                                     + "If high availability is enabled, then the default value will be 2. "
                                                     + "The restart number is also limited by YARN (configured via %s). "
-                                                    + "Note that that the entire Flink cluster will restart and the YARN Client will lose the connection.",
+                                                    + "Note that the entire Flink cluster will restart and the YARN Client will lose the connection.",
                                             link(
                                                     "https://hadoop.apache.org/docs/stable/hadoop-yarn/hadoop-yarn-common/yarn-default.xml",
                                                     "yarn.resourcemanager.am.max-attempts"))
@@ -170,7 +170,7 @@ public class YarnConfigOptions {
                                     + " (for example for environments sharing a Flink installation between users).");
 
     /**
-     * The config parameter defining the Akka actor system port for the ApplicationMaster and
+     * The config parameter defining the Pekko actor system port for the ApplicationMaster and
      * JobManager. The port can either be a port, such as "9123", a range of ports: "50100-50200" or
      * a list of ranges and or points: "50100-50200,50300-50400,51234". Setting the port to 0 will
      * let the OS choose an available port.
@@ -194,7 +194,7 @@ public class YarnConfigOptions {
      * unset yarn priority setting and use cluster default priority.
      *
      * @see <a
-     *     href="https://hadoop.apache.org/docs/r2.8.5/hadoop-yarn/hadoop-yarn-site/CapacityScheduler.html">YARN
+     *     href="https://hadoop.apache.org/docs/r2.10.2/hadoop-yarn/hadoop-yarn-site/CapacityScheduler.html">YARN
      *     Capacity Scheduling Doc</a>
      */
     public static final ConfigOption<Integer> APPLICATION_PRIORITY =
@@ -230,6 +230,31 @@ public class YarnConfigOptions {
                     .defaultValue("")
                     .withDescription(
                             "A comma-separated list of tags to apply to the Flink YARN application.");
+
+    /**
+     * Users and groups to give VIEW access.
+     * https://www.cloudera.com/documentation/enterprise/latest/topics/cm_mc_yarn_acl.html
+     */
+    public static final ConfigOption<String> APPLICATION_VIEW_ACLS =
+            key("yarn.view.acls")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "Users and groups to give VIEW access. The ACLs are of for"
+                                    + " comma-separated-users&lt;space&gt;comma-separated-groups."
+                                    + " Wildcard ACL is also supported. The only valid wildcard ACL"
+                                    + " is *, which grants permission to all users and groups.");
+
+    /** Users and groups to give MODIFY access. */
+    public static final ConfigOption<String> APPLICATION_MODIFY_ACLS =
+            key("yarn.modify.acls")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "Users and groups to give MODIFY access. The ACLs are of for"
+                                    + " comma-separated-users&lt;space&gt;comma-separated-groups."
+                                    + " Wildcard ACL is also supported. The only valid wildcard ACL"
+                                    + " is *, which grants permission to all users and groups.");
 
     // ----------------------- YARN CLI OPTIONS ------------------------------------
 
@@ -323,7 +348,7 @@ public class YarnConfigOptions {
                                     + " localized to. If "
                                     + SHIP_LOCAL_KEYTAB.key()
                                     + " set to "
-                                    + "true, Flink willl ship the keytab file as a YARN local "
+                                    + "true, Flink will ship the keytab file as a YARN local "
                                     + "resource. In this case, the path is relative to the local "
                                     + "resource directory. If set to false, Flink"
                                     + " will try to directly locate the keytab from the path itself.");

@@ -38,7 +38,7 @@ import org.apache.flink.util.FlinkException;
 import org.apache.flink.util.TestLogger;
 import org.apache.flink.util.function.CheckedSupplier;
 
-import org.apache.flink.shaded.guava30.com.google.common.collect.Sets;
+import org.apache.flink.shaded.guava31.com.google.common.collect.Sets;
 
 import org.junit.After;
 import org.junit.Assert;
@@ -49,6 +49,7 @@ import java.lang.management.ManagementFactory;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 import static org.apache.flink.runtime.metrics.util.MetricUtils.METRIC_GROUP_FLINK;
 import static org.apache.flink.runtime.metrics.util.MetricUtils.METRIC_GROUP_MANAGED_MEMORY;
@@ -84,10 +85,14 @@ public class MetricUtilsTest extends TestLogger {
 
         try {
             final int threadPriority =
-                    rpcService.execute(() -> Thread.currentThread().getPriority()).get();
+                    rpcService
+                            .getScheduledExecutor()
+                            .schedule(
+                                    () -> Thread.currentThread().getPriority(), 0, TimeUnit.SECONDS)
+                            .get();
             assertThat(threadPriority, is(expectedThreadPriority));
         } finally {
-            rpcService.stopService().get();
+            rpcService.closeAsync().get();
         }
     }
 

@@ -28,8 +28,6 @@ import org.apache.flink.formats.avro.generated.Address;
 import org.apache.avro.generic.GenericData;
 import org.apache.avro.generic.GenericRecord;
 import org.hamcrest.Matcher;
-import org.junit.runner.RunWith;
-import org.junit.runners.Parameterized;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -37,31 +35,24 @@ import java.util.Collection;
 import static org.hamcrest.Matchers.is;
 
 /** Tests based on {@link TypeSerializerUpgradeTestBase} for the {@link AvroSerializer}. */
-@RunWith(Parameterized.class)
-public class AvroSerializerUpgradeTest extends TypeSerializerUpgradeTestBase<Object, Object> {
+class AvroSerializerUpgradeTest extends TypeSerializerUpgradeTestBase<Object, Object> {
 
-    public AvroSerializerUpgradeTest(TestSpecification<Object, Object> testSpecification) {
-        super(testSpecification);
-    }
-
-    @Parameterized.Parameters(name = "Test Specification = {0}")
-    public static Collection<TestSpecification<?, ?>> testSpecifications() throws Exception {
+    public Collection<TestSpecification<?, ?>> createTestSpecifications(FlinkVersion flinkVersion)
+            throws Exception {
         ArrayList<TestSpecification<?, ?>> testSpecifications = new ArrayList<>();
-        for (FlinkVersion flinkVersion : MIGRATION_VERSIONS) {
-            testSpecifications.add(
-                    new TestSpecification<>(
-                            "generic-avro-serializer",
-                            flinkVersion,
-                            GenericAvroSerializerSetup.class,
-                            GenericAvroSerializerVerifier.class));
+        testSpecifications.add(
+                new TestSpecification<>(
+                        "generic-avro-serializer",
+                        flinkVersion,
+                        GenericAvroSerializerSetup.class,
+                        GenericAvroSerializerVerifier.class));
 
-            testSpecifications.add(
-                    new TestSpecification<>(
-                            "specific-avro-serializer",
-                            flinkVersion,
-                            SpecificAvroSerializerSetup.class,
-                            SpecificAvroSerializerVerifier.class));
-        }
+        testSpecifications.add(
+                new TestSpecification<>(
+                        "specific-avro-serializer",
+                        flinkVersion,
+                        SpecificAvroSerializerSetup.class,
+                        SpecificAvroSerializerVerifier.class));
 
         return testSpecifications;
     }

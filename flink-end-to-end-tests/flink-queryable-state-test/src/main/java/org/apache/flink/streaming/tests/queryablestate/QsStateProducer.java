@@ -37,7 +37,7 @@ import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.functions.source.RichSourceFunction;
 import org.apache.flink.util.Collector;
 
-import org.apache.flink.shaded.guava30.com.google.common.collect.Iterables;
+import org.apache.flink.shaded.guava31.com.google.common.collect.Iterables;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -95,6 +95,12 @@ public class QsStateProducer {
         env.execute();
     }
 
+    /**
+     * @deprecated This class is based on the {@link
+     *     org.apache.flink.streaming.api.functions.source.SourceFunction} API, which is due to be
+     *     removed. Use the new {@link org.apache.flink.api.connector.source.Source} API instead.
+     */
+    @Deprecated
     private static class EmailSource extends RichSourceFunction<Email> {
 
         private static final long serialVersionUID = -7286937645300388040L;

@@ -40,7 +40,7 @@ import static org.apache.flink.runtime.checkpoint.CheckpointFailureReason.CHECKP
 import static org.apache.flink.util.Preconditions.checkNotNull;
 
 /**
- * An input channel place holder to be replaced by either a {@link RemoteInputChannel} or {@link
+ * An input channel placeholder to be replaced by either a {@link RemoteInputChannel} or {@link
  * LocalInputChannel} at runtime.
  */
 class UnknownInputChannel extends InputChannel implements ChannelStateHolder {
@@ -174,11 +174,11 @@ class UnknownInputChannel extends InputChannel implements ChannelStateHolder {
                 channelStateWriter == null ? ChannelStateWriter.NO_OP : channelStateWriter);
     }
 
-    public LocalInputChannel toLocalInputChannel() {
+    public LocalInputChannel toLocalInputChannel(ResultPartitionID resultPartitionID) {
         return new LocalInputChannel(
                 inputGate,
                 getChannelIndex(),
-                partitionId,
+                resultPartitionID,
                 consumedSubpartitionIndex,
                 partitionManager,
                 taskEventPublisher,

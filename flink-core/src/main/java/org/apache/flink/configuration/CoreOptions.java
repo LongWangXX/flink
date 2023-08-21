@@ -26,7 +26,7 @@ import org.apache.flink.annotation.docs.Documentation;
 import org.apache.flink.configuration.description.Description;
 import org.apache.flink.util.ArrayUtils;
 
-import org.apache.flink.shaded.guava30.com.google.common.collect.Iterables;
+import org.apache.flink.shaded.guava31.com.google.common.collect.Iterables;
 
 import java.util.List;
 
@@ -225,9 +225,10 @@ public class CoreOptions {
     // ------------------------------------------------------------------------
 
     public static final ConfigOption<String> FLINK_JVM_OPTIONS =
-            ConfigOptions.key("env.java.opts")
+            ConfigOptions.key("env.java.opts.all")
                     .stringType()
                     .defaultValue("")
+                    .withDeprecatedKeys("env.java.opts")
                     .withDescription(
                             Description.builder()
                                     .text(
@@ -303,8 +304,22 @@ public class CoreOptions {
     public static final ConfigOption<Integer> FLINK_LOG_MAX =
             ConfigOptions.key("env.log.max")
                     .intType()
-                    .defaultValue(5)
+                    .defaultValue(10)
                     .withDescription("The maximum number of old log files to keep.");
+
+    /**
+     * This option is here only for documentation generation, it is only evaluated in the shell
+     * scripts.
+     */
+    @SuppressWarnings("unused")
+    public static final ConfigOption<Boolean> FLINK_STD_REDIRECT_TO_FILE =
+            ConfigOptions.key("env.stdout-err.redirect-to-file")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "Whether redirect stdout and stderr to files when running foreground. "
+                                    + "If enabled, logs won't append the console too. "
+                                    + "Note that redirected files do not support rolling rotate.");
 
     /**
      * This options is here only for documentation generation, it is only evaluated in the shell

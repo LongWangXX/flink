@@ -9,12 +9,6 @@
     </thead>
     <tbody>
         <tr>
-            <td><h5>high-availability</h5></td>
-            <td style="word-wrap: break-word;">"NONE"</td>
-            <td>String</td>
-            <td>Defines high-availability mode used for cluster execution. To enable high-availability, set this mode to "ZOOKEEPER", "KUBERNETES", or specify the fully qualified name of the factory class.</td>
-        </tr>
-        <tr>
             <td><h5>high-availability.cluster-id</h5></td>
             <td style="word-wrap: break-word;">"/default"</td>
             <td>String</td>
@@ -33,6 +27,12 @@
             <td>File system path (URI) where Flink persists metadata in high-availability setups.</td>
         </tr>
         <tr>
+            <td><h5>high-availability.type</h5></td>
+            <td style="word-wrap: break-word;">"NONE"</td>
+            <td>String</td>
+            <td>Defines high-availability mode used for cluster execution. To enable high-availability, set this mode to "ZOOKEEPER", "KUBERNETES", or specify the fully qualified name of the factory class.</td>
+        </tr>
+        <tr>
             <td><h5>high-availability.zookeeper.client.acl</h5></td>
             <td style="word-wrap: break-word;">"open"</td>
             <td>String</td>
@@ -43,6 +43,12 @@
             <td style="word-wrap: break-word;">15000</td>
             <td>Integer</td>
             <td>Defines the connection timeout for ZooKeeper in ms.</td>
+        </tr>
+        <tr>
+            <td><h5>high-availability.zookeeper.client.ensemble-tracker</h5></td>
+            <td style="word-wrap: break-word;">true</td>
+            <td>Boolean</td>
+            <td>Defines whether Curator should enable ensemble tracker. This can be useful in certain scenarios in which CuratorFramework is accessing to ZK clusters via load balancer or Virtual IPs. Default Curator EnsembleTracking logic watches CuratorEventType.GET_CONFIG events and changes ZooKeeper connection string. It is not desired behaviour when ZooKeeper is running under the Virtual IPs. Under certain configurations EnsembleTracking can lead to setting of ZooKeeper connection string with unresolvable hostnames.</td>
         </tr>
         <tr>
             <td><h5>high-availability.zookeeper.client.max-retry-attempts</h5></td>

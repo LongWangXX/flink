@@ -246,7 +246,7 @@ public abstract class BufferWritingResultPartition extends ResultPartition {
         finishUnicastBufferBuilders();
 
         for (ResultSubpartition subpartition : subpartitions) {
-            subpartition.finish();
+            totalWrittenBytes += subpartition.finish();
         }
 
         super.finish();
@@ -313,6 +313,13 @@ public abstract class BufferWritingResultPartition extends ResultPartition {
         resizeBuffer(buffer, desirableBufferSize, minDesirableBufferSize);
     }
 
+    protected int addToSubpartition(
+            int targetSubpartition, BufferConsumer bufferConsumer, int partialRecordLength)
+            throws IOException {
+        totalWrittenBytes += bufferConsumer.getWrittenBytes();
+        return subpartitions[targetSubpartition].add(bufferConsumer, partialRecordLength);
+    }
+
     private void resizeBuffer(
             BufferBuilder buffer, int desirableBufferSize, int minDesirableBufferSize) {
         if (desirableBufferSize > 0) {
@@ -374,10 +381,9 @@ public abstract class BufferWritingResultPartition extends ResultPartition {
             int desirableBufferSize = Integer.MAX_VALUE;
             for (ResultSubpartition subpartition : subpartitions) {
                 int subPartitionBufferSize = subpartition.add(consumer.copy(), partialRecordBytes);
-                desirableBufferSize =
-                        subPartitionBufferSize > 0
-                                ? Math.min(desirableBufferSize, subPartitionBufferSize)
-                                : desirableBufferSize;
+                if (subPartitionBufferSize != ResultSubpartition.ADD_BUFFER_ERROR_CODE) {
+                    desirableBufferSize = Math.min(desirableBufferSize, subPartitionBufferSize);
+                }
             }
             resizeBuffer(buffer, desirableBufferSize, minDesirableBufferSize);
         }
@@ -423,7 +429,7 @@ public abstract class BufferWritingResultPartition extends ResultPartition {
         final BufferBuilder bufferBuilder = unicastBufferBuilders[targetSubpartition];
         if (bufferBuilder != null) {
             int bytes = bufferBuilder.finish();
-            numBytesProduced.inc(bytes);
+            resultPartitionBytes.inc(targetSubpartition, bytes);
             numBytesOut.inc(bytes);
             numBuffersOut.inc();
             unicastBufferBuilders[targetSubpartition] = null;
@@ -440,7 +446,7 @@ public abstract class BufferWritingResultPartition extends ResultPartition {
     private void finishBroadcastBufferBuilder() {
         if (broadcastBufferBuilder != null) {
             int bytes = broadcastBufferBuilder.finish();
-            numBytesProduced.inc(bytes);
+            resultPartitionBytes.incAll(bytes);
             numBytesOut.inc(bytes * numSubpartitions);
             numBuffersOut.inc(numSubpartitions);
             broadcastBufferBuilder.close();

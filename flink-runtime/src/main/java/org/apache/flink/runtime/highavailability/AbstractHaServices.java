@@ -24,7 +24,9 @@ import org.apache.flink.runtime.blob.BlobStore;
 import org.apache.flink.runtime.blob.BlobStoreService;
 import org.apache.flink.runtime.checkpoint.CheckpointRecoveryFactory;
 import org.apache.flink.runtime.jobmanager.JobGraphStore;
-import org.apache.flink.runtime.leaderelection.LeaderElectionService;
+import org.apache.flink.runtime.leaderelection.DefaultLeaderElectionService;
+import org.apache.flink.runtime.leaderelection.LeaderElection;
+import org.apache.flink.runtime.leaderelection.LeaderElectionDriverFactory;
 import org.apache.flink.runtime.leaderretrieval.LeaderRetrievalService;
 import org.apache.flink.util.ExceptionUtils;
 
@@ -66,8 +68,11 @@ public abstract class AbstractHaServices implements HighAvailabilityServices {
 
     private final JobResultStore jobResultStore;
 
+    private final DefaultLeaderElectionService leaderElectionService;
+
     protected AbstractHaServices(
             Configuration config,
+            LeaderElectionDriverFactory driverFactory,
             Executor ioExecutor,
             BlobStoreService blobStoreService,
             JobResultStore jobResultStore) {
@@ -76,6 +81,8 @@ public abstract class AbstractHaServices implements HighAvailabilityServices {
         this.ioExecutor = checkNotNull(ioExecutor);
         this.blobStoreService = checkNotNull(blobStoreService);
         this.jobResultStore = checkNotNull(jobResultStore);
+
+        this.leaderElectionService = new DefaultLeaderElectionService(driverFactory);
     }
 
     @Override
@@ -105,23 +112,23 @@ public abstract class AbstractHaServices implements HighAvailabilityServices {
     }
 
     @Override
-    public LeaderElectionService getResourceManagerLeaderElectionService() {
-        return createLeaderElectionService(getLeaderPathForResourceManager());
+    public LeaderElection getResourceManagerLeaderElection() {
+        return leaderElectionService.createLeaderElection(getLeaderPathForResourceManager());
     }
 
     @Override
-    public LeaderElectionService getDispatcherLeaderElectionService() {
-        return createLeaderElectionService(getLeaderPathForDispatcher());
+    public LeaderElection getDispatcherLeaderElection() {
+        return leaderElectionService.createLeaderElection(getLeaderPathForDispatcher());
     }
 
     @Override
-    public LeaderElectionService getJobManagerLeaderElectionService(JobID jobID) {
-        return createLeaderElectionService(getLeaderPathForJobManager(jobID));
+    public LeaderElection getJobManagerLeaderElection(JobID jobID) {
+        return leaderElectionService.createLeaderElection(getLeaderPathForJobManager(jobID));
     }
 
     @Override
-    public LeaderElectionService getClusterRestEndpointLeaderElectionService() {
-        return createLeaderElectionService(getLeaderPathForRestServer());
+    public LeaderElection getClusterRestEndpointLeaderElection() {
+        return leaderElectionService.createLeaderElection(getLeaderPathForRestServer());
     }
 
     @Override
@@ -155,6 +162,14 @@ public abstract class AbstractHaServices implements HighAvailabilityServices {
         }
 
         try {
+            if (leaderElectionService != null) {
+                leaderElectionService.close();
+            }
+        } catch (Throwable t) {
+            exception = ExceptionUtils.firstOrSuppressed(t, exception);
+        }
+
+        try {
             internalClose();
         } catch (Throwable t) {
             exception = ExceptionUtils.firstOrSuppressed(t, exception);
@@ -179,6 +194,14 @@ public abstract class AbstractHaServices implements HighAvailabilityServices {
             deletedHAData = true;
         } catch (Exception t) {
             exception = t;
+        }
+
+        try {
+            if (leaderElectionService != null) {
+                leaderElectionService.close();
+            }
+        } catch (Throwable t) {
+            exception = ExceptionUtils.firstOrSuppressed(t, exception);
         }
 
         try {
@@ -222,14 +245,6 @@ public abstract class AbstractHaServices implements HighAvailabilityServices {
                 },
                 executor);
     }
-
-    /**
-     * Create leader election service with specified leaderName.
-     *
-     * @param leaderName ConfigMap name in Kubernetes or child node path in Zookeeper.
-     * @return Return LeaderElectionService using Zookeeper or Kubernetes.
-     */
-    protected abstract LeaderElectionService createLeaderElectionService(String leaderName);
 
     /**
      * Create leader retrieval service with specified leaderName.

@@ -30,10 +30,12 @@ import org.apache.flink.runtime.io.disk.iomanager.IOManager;
 import org.apache.flink.runtime.io.disk.iomanager.IOManagerAsync;
 import org.apache.flink.runtime.io.network.TaskEventDispatcher;
 import org.apache.flink.runtime.memory.MemoryManager;
+import org.apache.flink.runtime.memory.SharedResources;
 import org.apache.flink.runtime.rpc.FatalErrorHandler;
 import org.apache.flink.runtime.shuffle.ShuffleEnvironment;
 import org.apache.flink.runtime.shuffle.ShuffleEnvironmentContext;
 import org.apache.flink.runtime.shuffle.ShuffleServiceLoader;
+import org.apache.flink.runtime.state.TaskExecutorChannelStateExecutorFactoryManager;
 import org.apache.flink.runtime.state.TaskExecutorLocalStateStoresManager;
 import org.apache.flink.runtime.state.TaskExecutorStateChangelogStoragesManager;
 import org.apache.flink.runtime.taskexecutor.slot.DefaultTimerService;
@@ -79,10 +81,13 @@ public class TaskManagerServices {
     private final JobLeaderService jobLeaderService;
     private final TaskExecutorLocalStateStoresManager taskManagerStateStore;
     private final TaskExecutorStateChangelogStoragesManager taskManagerChangelogManager;
+    private final TaskExecutorChannelStateExecutorFactoryManager taskManagerChannelStateManager;
     private final TaskEventDispatcher taskEventDispatcher;
     private final ExecutorService ioExecutor;
     private final LibraryCacheManager libraryCacheManager;
     private final SlotAllocationSnapshotPersistenceService slotAllocationSnapshotPersistenceService;
+    private final SharedResources sharedResources;
+    private final ShuffleDescriptorsCache shuffleDescriptorsCache;
 
     TaskManagerServices(
             UnresolvedTaskManagerLocation unresolvedTaskManagerLocation,
@@ -96,10 +101,13 @@ public class TaskManagerServices {
             JobLeaderService jobLeaderService,
             TaskExecutorLocalStateStoresManager taskManagerStateStore,
             TaskExecutorStateChangelogStoragesManager taskManagerChangelogManager,
+            TaskExecutorChannelStateExecutorFactoryManager taskManagerChannelStateManager,
             TaskEventDispatcher taskEventDispatcher,
             ExecutorService ioExecutor,
             LibraryCacheManager libraryCacheManager,
-            SlotAllocationSnapshotPersistenceService slotAllocationSnapshotPersistenceService) {
+            SlotAllocationSnapshotPersistenceService slotAllocationSnapshotPersistenceService,
+            SharedResources sharedResources,
+            ShuffleDescriptorsCache shuffleDescriptorsCache) {
 
         this.unresolvedTaskManagerLocation =
                 Preconditions.checkNotNull(unresolvedTaskManagerLocation);
@@ -113,10 +121,13 @@ public class TaskManagerServices {
         this.jobLeaderService = Preconditions.checkNotNull(jobLeaderService);
         this.taskManagerStateStore = Preconditions.checkNotNull(taskManagerStateStore);
         this.taskManagerChangelogManager = Preconditions.checkNotNull(taskManagerChangelogManager);
+        this.taskManagerChannelStateManager = taskManagerChannelStateManager;
         this.taskEventDispatcher = Preconditions.checkNotNull(taskEventDispatcher);
         this.ioExecutor = Preconditions.checkNotNull(ioExecutor);
         this.libraryCacheManager = Preconditions.checkNotNull(libraryCacheManager);
         this.slotAllocationSnapshotPersistenceService = slotAllocationSnapshotPersistenceService;
+        this.sharedResources = Preconditions.checkNotNull(sharedResources);
+        this.shuffleDescriptorsCache = Preconditions.checkNotNull(shuffleDescriptorsCache);
     }
 
     // --------------------------------------------------------------------------------------------
@@ -167,6 +178,10 @@ public class TaskManagerServices {
         return taskManagerChangelogManager;
     }
 
+    public TaskExecutorChannelStateExecutorFactoryManager getTaskManagerChannelStateManager() {
+        return taskManagerChannelStateManager;
+    }
+
     public TaskEventDispatcher getTaskEventDispatcher() {
         return taskEventDispatcher;
     }
@@ -177,6 +192,14 @@ public class TaskManagerServices {
 
     public LibraryCacheManager getLibraryCacheManager() {
         return libraryCacheManager;
+    }
+
+    public SharedResources getSharedResources() {
+        return sharedResources;
+    }
+
+    public ShuffleDescriptorsCache getShuffleDescriptorCache() {
+        return shuffleDescriptorsCache;
     }
 
     // --------------------------------------------------------------------------------------------
@@ -333,6 +356,9 @@ public class TaskManagerServices {
         final TaskExecutorStateChangelogStoragesManager changelogStoragesManager =
                 new TaskExecutorStateChangelogStoragesManager();
 
+        final TaskExecutorChannelStateExecutorFactoryManager channelStateExecutorFactoryManager =
+                new TaskExecutorChannelStateExecutorFactoryManager();
+
         final boolean failOnJvmMetaspaceOomError =
                 taskManagerServicesConfiguration
                         .getConfiguration()
@@ -349,7 +375,8 @@ public class TaskManagerServices {
                                 taskManagerServicesConfiguration
                                         .getAlwaysParentFirstLoaderPatterns(),
                                 failOnJvmMetaspaceOomError ? fatalErrorHandler : null,
-                                checkClassLoaderLeak));
+                                checkClassLoaderLeak),
+                        false);
 
         final SlotAllocationSnapshotPersistenceService slotAllocationSnapshotPersistenceService;
 
@@ -361,6 +388,9 @@ public class TaskManagerServices {
             slotAllocationSnapshotPersistenceService =
                     NoOpSlotAllocationSnapshotPersistenceService.INSTANCE;
         }
+
+        final ShuffleDescriptorsCache shuffleDescriptorsCache =
+                new DefaultShuffleDescriptorsCache.Factory().create();
 
         return new TaskManagerServices(
                 unresolvedTaskManagerLocation,
@@ -374,10 +404,13 @@ public class TaskManagerServices {
                 jobLeaderService,
                 taskStateManager,
                 changelogStoragesManager,
+                channelStateExecutorFactoryManager,
                 taskEventDispatcher,
                 ioExecutor,
                 libraryCacheManager,
-                slotAllocationSnapshotPersistenceService);
+                slotAllocationSnapshotPersistenceService,
+                new SharedResources(),
+                shuffleDescriptorsCache);
     }
 
     private static TaskSlotTable<Task> createTaskSlotTable(

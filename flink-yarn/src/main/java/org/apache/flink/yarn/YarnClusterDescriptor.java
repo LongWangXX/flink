@@ -38,6 +38,7 @@ import org.apache.flink.configuration.CoreOptions;
 import org.apache.flink.configuration.HighAvailabilityOptions;
 import org.apache.flink.configuration.IllegalConfigurationException;
 import org.apache.flink.configuration.JobManagerOptions;
+import org.apache.flink.configuration.MemorySize;
 import org.apache.flink.configuration.PipelineOptions;
 import org.apache.flink.configuration.ResourceManagerOptions;
 import org.apache.flink.configuration.RestOptions;
@@ -52,9 +53,11 @@ import org.apache.flink.runtime.jobgraph.JobGraph;
 import org.apache.flink.runtime.jobmanager.HighAvailabilityMode;
 import org.apache.flink.runtime.jobmanager.JobManagerProcessSpec;
 import org.apache.flink.runtime.jobmanager.JobManagerProcessUtils;
-import org.apache.flink.runtime.security.token.DelegationTokenConverter;
+import org.apache.flink.runtime.security.token.DefaultDelegationTokenManager;
+import org.apache.flink.runtime.security.token.DelegationTokenContainer;
 import org.apache.flink.runtime.security.token.DelegationTokenManager;
-import org.apache.flink.runtime.security.token.KerberosDelegationTokenManager;
+import org.apache.flink.runtime.security.token.hadoop.HadoopDelegationTokenConverter;
+import org.apache.flink.runtime.security.token.hadoop.KerberosLoginProvider;
 import org.apache.flink.runtime.util.HadoopUtils;
 import org.apache.flink.util.CollectionUtil;
 import org.apache.flink.util.FlinkException;
@@ -74,6 +77,8 @@ import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hdfs.DFSConfigKeys;
 import org.apache.hadoop.security.Credentials;
 import org.apache.hadoop.security.UserGroupInformation;
+import org.apache.hadoop.security.token.Token;
+import org.apache.hadoop.security.token.TokenIdentifier;
 import org.apache.hadoop.yarn.api.ApplicationConstants;
 import org.apache.hadoop.yarn.api.protocolrecords.GetNewApplicationResponse;
 import org.apache.hadoop.yarn.api.records.ApplicationId;
@@ -113,7 +118,6 @@ import java.net.URI;
 import java.net.URLDecoder;
 import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
@@ -138,6 +142,9 @@ import static org.apache.flink.yarn.YarnConfigKeys.LOCAL_RESOURCE_DESCRIPTOR_SEP
 /** The descriptor with deployment information for deploying a Flink cluster on Yarn. */
 public class YarnClusterDescriptor implements ClusterDescriptor<ApplicationId> {
     private static final Logger LOG = LoggerFactory.getLogger(YarnClusterDescriptor.class);
+
+    @VisibleForTesting
+    static final String IGNORE_UNRECOGNIZED_VM_OPTIONS = "-XX:+IgnoreUnrecognizedVMOptions";
 
     private final YarnConfiguration yarnConfiguration;
 
@@ -298,23 +305,26 @@ public class YarnClusterDescriptor implements ClusterDescriptor<ApplicationId> {
     private void addShipArchives(List<File> shipArchives) {
         checkArgument(
                 isArchiveOnlyIncludedInShipArchiveFiles(shipArchives),
-                "Non-archive files are included.");
+                "Directories or non-archive files are included.");
         this.shipArchives.addAll(shipArchives);
     }
 
     private static boolean isArchiveOnlyIncludedInShipArchiveFiles(List<File> shipFiles) {
-        return shipFiles.stream()
-                .filter(File::isFile)
-                .map(File::getName)
-                .map(String::toLowerCase)
-                .allMatch(
-                        name ->
-                                name.endsWith(".tar.gz")
-                                        || name.endsWith(".tar")
-                                        || name.endsWith(".tgz")
-                                        || name.endsWith(".dst")
-                                        || name.endsWith(".jar")
-                                        || name.endsWith(".zip"));
+        long archivedFileCount =
+                shipFiles.stream()
+                        .filter(File::isFile)
+                        .map(File::getName)
+                        .map(String::toLowerCase)
+                        .filter(
+                                name ->
+                                        name.endsWith(".tar.gz")
+                                                || name.endsWith(".tar")
+                                                || name.endsWith(".tgz")
+                                                || name.endsWith(".dst")
+                                                || name.endsWith(".jar")
+                                                || name.endsWith(".zip"))
+                        .count();
+        return archivedFileCount == shipFiles.size();
     }
 
     private void isReadyForDeployment(ClusterSpecification clusterSpecification) throws Exception {
@@ -668,22 +678,22 @@ public class YarnClusterDescriptor implements ClusterDescriptor<ApplicationId> {
 
         final String note =
                 "Please check the 'yarn.scheduler.maximum-allocation-mb' and the 'yarn.nodemanager.resource.memory-mb' configuration values\n";
-        if (jobManagerMemoryMb > maximumResourceCapability.getMemory()) {
+        if (jobManagerMemoryMb > maximumResourceCapability.getMemorySize()) {
             throw new YarnDeploymentException(
                     "The cluster does not have the requested resources for the JobManager available!\n"
                             + "Maximum Memory: "
-                            + maximumResourceCapability.getMemory()
+                            + maximumResourceCapability.getMemorySize()
                             + "MB Requested: "
                             + jobManagerMemoryMb
                             + "MB. "
                             + note);
         }
 
-        if (taskManagerMemoryMb > maximumResourceCapability.getMemory()) {
+        if (taskManagerMemoryMb > maximumResourceCapability.getMemorySize()) {
             throw new YarnDeploymentException(
                     "The cluster does not have the requested resources for the TaskManagers available!\n"
                             + "Maximum Memory: "
-                            + maximumResourceCapability.getMemory()
+                            + maximumResourceCapability.getMemorySize()
                             + " Requested: "
                             + taskManagerMemoryMb
                             + "MB. "
@@ -827,7 +837,7 @@ public class YarnClusterDescriptor implements ClusterDescriptor<ApplicationId> {
                         getFileReplication());
 
         // The files need to be shipped and added to classpath.
-        Set<File> systemShipFiles = new HashSet<>(shipFiles.size());
+        Set<File> systemShipFiles = CollectionUtil.newHashSetWithExpectedSize(shipFiles.size());
         for (File file : shipFiles) {
             systemShipFiles.add(file.getAbsoluteFile());
         }
@@ -842,7 +852,7 @@ public class YarnClusterDescriptor implements ClusterDescriptor<ApplicationId> {
 
         final ApplicationId appId = appContext.getApplicationId();
 
-        // ------------------ Add Zookeeper namespace to local flinkConfiguraton ------
+        // ------------------ Add Zookeeper namespace to local flinkConfiguration ------
         setHAClusterIdIfNotSet(configuration, appId);
 
         if (HighAvailabilityMode.isHighAvailabilityModeActivated(configuration)) {
@@ -1150,30 +1160,19 @@ public class YarnClusterDescriptor implements ClusterDescriptor<ApplicationId> {
         final ContainerLaunchContext amContainer =
                 setupApplicationMasterContainer(yarnClusterEntrypoint, hasKrb5, processSpec);
 
-        // New delegation token framework
-        if (configuration.getBoolean(SecurityOptions.KERBEROS_FETCH_DELEGATION_TOKEN)) {
-            setTokensFor(amContainer);
-        }
-        // Old delegation token framework
-        if (UserGroupInformation.isSecurityEnabled()) {
-            LOG.info("Adding delegation token to the AM container.");
-            final List<Path> pathsToObtainToken = new ArrayList<>();
-            boolean fetchToken =
-                    configuration.getBoolean(SecurityOptions.KERBEROS_FETCH_DELEGATION_TOKEN);
-            if (fetchToken) {
-                List<Path> yarnAccessList =
-                        ConfigUtils.decodeListFromConfig(
-                                configuration,
-                                SecurityOptions.KERBEROS_HADOOP_FILESYSTEMS_TO_ACCESS,
-                                Path::new);
-                pathsToObtainToken.addAll(yarnAccessList);
-                pathsToObtainToken.addAll(fileUploader.getRemotePaths());
-            }
-            Utils.setTokensFor(amContainer, pathsToObtainToken, yarnConfiguration, fetchToken);
+        boolean fetchToken = configuration.getBoolean(SecurityOptions.DELEGATION_TOKENS_ENABLED);
+        KerberosLoginProvider kerberosLoginProvider = new KerberosLoginProvider(configuration);
+        if (kerberosLoginProvider.isLoginPossible(true)) {
+            setTokensFor(amContainer, fetchToken);
+        } else {
+            LOG.info(
+                    "Cannot use kerberos delegation token manager, no valid kerberos credentials provided.");
         }
 
         amContainer.setLocalResources(fileUploader.getRegisteredLocalResources());
         fileUploader.close();
+
+        Utils.setAclsFor(amContainer, flinkConfiguration);
 
         // Setup CLASSPATH and environment variables for ApplicationMaster
         final Map<String, String> appMasterEnv =
@@ -1205,7 +1204,7 @@ public class YarnClusterDescriptor implements ClusterDescriptor<ApplicationId> {
 
         // Set up resource type requirements for ApplicationMaster
         Resource capability = Records.newRecord(Resource.class);
-        capability.setMemory(clusterSpecification.getMasterMemoryMB());
+        capability.setMemorySize(clusterSpecification.getMasterMemoryMB());
         capability.setVirtualCores(
                 flinkConfiguration.getInteger(YarnConfigOptions.APP_MASTER_VCORES));
 
@@ -1240,6 +1239,7 @@ public class YarnClusterDescriptor implements ClusterDescriptor<ApplicationId> {
 
         LOG.info("Waiting for the cluster to be allocated");
         final long startTime = System.currentTimeMillis();
+        long lastLogTime = System.currentTimeMillis();
         ApplicationReport report;
         YarnApplicationState lastAppState = YarnApplicationState.NEW;
         loop:
@@ -1275,9 +1275,11 @@ public class YarnClusterDescriptor implements ClusterDescriptor<ApplicationId> {
                     if (appState != lastAppState) {
                         LOG.info("Deploying cluster, current state " + appState);
                     }
-                    if (System.currentTimeMillis() - startTime > 60000) {
+                    if (System.currentTimeMillis() - lastLogTime > 60000) {
+                        lastLogTime = System.currentTimeMillis();
                         LOG.info(
-                                "Deployment took more than 60 seconds. Please check if the requested resources are available in the YARN cluster");
+                                "Deployment took more than {} seconds. Please check if the requested resources are available in the YARN cluster",
+                                (lastLogTime - startTime) / 1000);
                     }
             }
             lastAppState = appState;
@@ -1303,16 +1305,37 @@ public class YarnClusterDescriptor implements ClusterDescriptor<ApplicationId> {
                         });
     }
 
-    private void setTokensFor(ContainerLaunchContext containerLaunchContext) throws Exception {
-        LOG.info("Adding delegation tokens to the AM container.");
-
+    private void setTokensFor(ContainerLaunchContext containerLaunchContext, boolean fetchToken)
+            throws Exception {
         Credentials credentials = new Credentials();
 
-        DelegationTokenManager delegationTokenManager =
-                new KerberosDelegationTokenManager(flinkConfiguration, null, null);
-        delegationTokenManager.obtainDelegationTokens(credentials);
+        LOG.info("Loading delegation tokens available locally to add to the AM container");
+        // for user
+        UserGroupInformation currUsr = UserGroupInformation.getCurrentUser();
 
-        ByteBuffer tokens = ByteBuffer.wrap(DelegationTokenConverter.serialize(credentials));
+        Collection<Token<? extends TokenIdentifier>> usrTok =
+                currUsr.getCredentials().getAllTokens();
+        for (Token<? extends TokenIdentifier> token : usrTok) {
+            LOG.info("Adding user token " + token.getService() + " with " + token);
+            credentials.addToken(token.getService(), token);
+        }
+
+        if (fetchToken) {
+            LOG.info("Fetching delegation tokens to add to the AM container.");
+            DelegationTokenManager delegationTokenManager =
+                    new DefaultDelegationTokenManager(flinkConfiguration, null, null, null);
+            DelegationTokenContainer container = new DelegationTokenContainer();
+            delegationTokenManager.obtainDelegationTokens(container);
+
+            // This is here for backward compatibility to make log aggregation work
+            for (Map.Entry<String, byte[]> e : container.getTokens().entrySet()) {
+                if (e.getKey().equals("hadoopfs")) {
+                    credentials.addAll(HadoopDelegationTokenConverter.deserialize(e.getValue()));
+                }
+            }
+        }
+
+        ByteBuffer tokens = ByteBuffer.wrap(HadoopDelegationTokenConverter.serialize(credentials));
         containerLaunchContext.setTokens(tokens);
 
         LOG.info("Delegation tokens added to the AM container.");
@@ -1375,12 +1398,12 @@ public class YarnClusterDescriptor implements ClusterDescriptor<ApplicationId> {
     }
 
     private static class ClusterResourceDescription {
-        public final int totalFreeMemory;
-        public final int containerLimit;
-        public final int[] nodeManagersFree;
+        public final long totalFreeMemory;
+        public final long containerLimit;
+        public final long[] nodeManagersFree;
 
         public ClusterResourceDescription(
-                int totalFreeMemory, int containerLimit, int[] nodeManagersFree) {
+                long totalFreeMemory, long containerLimit, long[] nodeManagersFree) {
             this.totalFreeMemory = totalFreeMemory;
             this.containerLimit = containerLimit;
             this.nodeManagersFree = nodeManagersFree;
@@ -1392,14 +1415,14 @@ public class YarnClusterDescriptor implements ClusterDescriptor<ApplicationId> {
         List<NodeReport> nodes = yarnClient.getNodeReports(NodeState.RUNNING);
 
         int totalFreeMemory = 0;
-        int containerLimit = 0;
-        int[] nodeManagersFree = new int[nodes.size()];
+        long containerLimit = 0;
+        long[] nodeManagersFree = new long[nodes.size()];
 
         for (int i = 0; i < nodes.size(); i++) {
             NodeReport rep = nodes.get(i);
-            int free =
-                    rep.getCapability().getMemory()
-                            - (rep.getUsed() != null ? rep.getUsed().getMemory() : 0);
+            long free =
+                    rep.getCapability().getMemorySize()
+                            - (rep.getUsed() != null ? rep.getUsed().getMemorySize() : 0);
             nodeManagersFree[i] = free;
             totalFreeMemory += free;
             if (free > containerLimit) {
@@ -1423,20 +1446,24 @@ public class YarnClusterDescriptor implements ClusterDescriptor<ApplicationId> {
             final String format = "|%-16s |%-16s %n";
             ps.printf("|Property         |Value          %n");
             ps.println("+---------------------------------------+");
-            int totalMemory = 0;
+            long totalMemory = 0;
             int totalCores = 0;
             for (NodeReport rep : nodes) {
                 final Resource res = rep.getCapability();
-                totalMemory += res.getMemory();
+                totalMemory += res.getMemorySize();
                 totalCores += res.getVirtualCores();
                 ps.format(format, "NodeID", rep.getNodeId());
-                ps.format(format, "Memory", res.getMemory() + " MB");
+                ps.format(format, "Memory", getDisplayMemory(res.getMemorySize()));
                 ps.format(format, "vCores", res.getVirtualCores());
                 ps.format(format, "HealthReport", rep.getHealthReport());
                 ps.format(format, "Containers", rep.getNumContainers());
                 ps.println("+---------------------------------------+");
             }
-            ps.println("Summary: totalMemory " + totalMemory + " totalCores " + totalCores);
+            ps.println(
+                    "Summary: totalMemory "
+                            + getDisplayMemory(totalMemory)
+                            + " totalCores "
+                            + totalCores);
             List<QueueInfo> qInfo = yarnClient.getAllQueues();
             for (QueueInfo q : qInfo) {
                 ps.println(
@@ -1789,6 +1816,8 @@ public class YarnClusterDescriptor implements ClusterDescriptor<ApplicationId> {
             javaOpts += " " + flinkConfiguration.getString(CoreOptions.FLINK_JM_JVM_OPTIONS);
         }
 
+        javaOpts += " " + IGNORE_UNRECOGNIZED_VM_OPTIONS;
+
         // krb5.conf file will be available as local resource in JM/TM container
         if (hasKrb5) {
             javaOpts += " -Djava.security.krb5.conf=krb5.conf";
@@ -1925,5 +1954,9 @@ public class YarnClusterDescriptor implements ClusterDescriptor<ApplicationId> {
         // set classpath from YARN configuration
         Utils.setupYarnClassPath(this.yarnConfiguration, env);
         return env;
+    }
+
+    private String getDisplayMemory(long memoryMB) {
+        return MemorySize.ofMebiBytes(memoryMB).toHumanReadableString();
     }
 }

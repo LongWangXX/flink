@@ -19,7 +19,6 @@
 package org.apache.flink.table.runtime.hashtable;
 
 import org.apache.flink.annotation.VisibleForTesting;
-import org.apache.flink.configuration.Configuration;
 import org.apache.flink.core.memory.MemorySegment;
 import org.apache.flink.runtime.io.disk.ChannelReaderInputViewIterator;
 import org.apache.flink.runtime.io.disk.iomanager.ChannelReaderInputView;
@@ -42,6 +41,7 @@ import org.apache.flink.table.runtime.util.RowIterator;
 import org.apache.flink.util.MathUtils;
 
 import java.io.IOException;
+import java.io.UnsupportedEncodingException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -143,8 +143,9 @@ public class BinaryHashTable extends BaseHybridHashTable {
     BinaryRowData reuseBuildRow;
 
     public BinaryHashTable(
-            Configuration conf,
             Object owner,
+            boolean compressionEnabled,
+            int compressionBlockSize,
             AbstractRowDataSerializer buildSideSerializer,
             AbstractRowDataSerializer probeSideSerializer,
             Projection<RowData, BinaryRowData> buildSideProjection,
@@ -161,14 +162,16 @@ public class BinaryHashTable extends BaseHybridHashTable {
             boolean[] filterNulls,
             boolean tryDistinctBuildRow) {
         super(
-                conf,
                 owner,
+                compressionEnabled,
+                compressionBlockSize,
                 memManager,
                 reservedMemorySize,
                 ioManager,
                 avgRecordLen,
                 buildRowCount,
-                !type.buildLeftSemiOrAnti() && tryDistinctBuildRow);
+                !type.buildLeftSemiOrAnti() && tryDistinctBuildRow,
+                true);
         // assign the members
         this.originBuildSideSerializer = buildSideSerializer;
         this.binaryBuildSideSerializer =
@@ -447,7 +450,7 @@ public class BinaryHashTable extends BaseHybridHashTable {
                         ioManager,
                         channelWithMeta,
                         new ArrayList<>(),
-                        compressionEnable,
+                        compressionEnabled,
                         compressionCodecFactory,
                         compressionBlockSize,
                         segmentSize);
@@ -614,7 +617,7 @@ public class BinaryHashTable extends BaseHybridHashTable {
                             getNotNullNextBuffer(),
                             this,
                             this.segmentSize,
-                            compressionEnable,
+                            compressionEnabled,
                             compressionCodecFactory,
                             compressionBlockSize);
             area.setPartition(p);
@@ -667,6 +670,11 @@ public class BinaryHashTable extends BaseHybridHashTable {
      */
     @Override
     protected int spillPartition() throws IOException {
+        if (!spillEnabled) {
+            throw new UnsupportedEncodingException(
+                    "Currently doesn't support spill to disk for grace hash join "
+                            + "when broadcast hash join strategy is chosen and operator fusion codegen is enabled simultaneously.");
+        }
         // find the largest partition
         int largestNumBlocks = 0;
         int largestPartNum = -1;

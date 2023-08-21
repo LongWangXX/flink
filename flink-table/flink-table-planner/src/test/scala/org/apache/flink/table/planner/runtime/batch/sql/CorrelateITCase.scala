@@ -31,19 +31,18 @@ import org.apache.flink.table.planner.runtime.utils.BatchTestBase.row
 import org.apache.flink.table.planner.runtime.utils.JavaUserDefinedTableFunctions.JavaTableFunc0
 import org.apache.flink.table.planner.runtime.utils.TestData._
 import org.apache.flink.table.planner.runtime.utils.UserDefinedFunctionTestUtils.{MyPojo, MyPojoFunc}
-import org.apache.flink.table.planner.utils.{HierarchyTableFunction, PojoTableFunc, RichTableFunc1, TableFunc0, TableFunc1, TableFunc2, TableFunc3, VarArgsFunc0}
+import org.apache.flink.table.planner.utils._
 import org.apache.flink.table.planner.utils.DateTimeTestUtil._
 import org.apache.flink.table.runtime.typeutils.StringDataTypeInfo
 import org.apache.flink.types.Row
 
-import org.junit.{Before, Test}
+import org.junit.jupiter.api.{BeforeEach, Test}
 
 import scala.collection.JavaConversions._
-import scala.collection.Seq
 
 class CorrelateITCase extends BatchTestBase {
 
-  @Before
+  @BeforeEach
   override def before(): Unit = {
     super.before()
     registerCollection("inputT", TableFunctionITCase.testData, type3, "a, b, c")
@@ -247,6 +246,15 @@ class CorrelateITCase extends BatchTestBase {
     checkResult(
       "select b from MyTable, LATERAL TABLE(toPojoTFunc(pojoFunc(a))) as T(b, c)",
       Seq(row(105), row(11), row(12)))
+  }
+
+  @Test
+  def testTableFunctionWithFinishMethod(): Unit = {
+    registerTemporarySystemFunction("udtfWithFinish", classOf[RichTableFuncWithFinish])
+    checkResult(
+      "select s from inputT, LATERAL TABLE(udtfWithFinish(c)) as T(s)",
+      Seq(row("Jack#22"), row("John#19"), row("Anna#44"), row("nosharp"))
+    )
   }
 
 // TODO support dynamic type

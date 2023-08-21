@@ -22,7 +22,9 @@ import org.apache.flink.api.common.JobID;
 import org.apache.flink.api.common.JobStatus;
 import org.apache.flink.api.common.time.Time;
 import org.apache.flink.api.java.tuple.Tuple2;
+import org.apache.flink.core.execution.CheckpointType;
 import org.apache.flink.core.execution.SavepointFormatType;
+import org.apache.flink.runtime.checkpoint.CheckpointStatsSnapshot;
 import org.apache.flink.runtime.clusterframework.ApplicationStatus;
 import org.apache.flink.runtime.clusterframework.types.ResourceID;
 import org.apache.flink.runtime.dispatcher.DispatcherGateway;
@@ -49,6 +51,7 @@ import org.apache.flink.util.function.TriFunction;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
@@ -118,6 +121,8 @@ public final class TestingDispatcherGateway extends TestingRestfulGateway
             Function<JobID, CompletableFuture<ArchivedExecutionGraph>> requestJobFunction,
             Function<JobID, CompletableFuture<ExecutionGraphInfo>>
                     requestExecutionGraphInfoFunction,
+            Function<JobID, CompletableFuture<CheckpointStatsSnapshot>>
+                    requestCheckpointStatsSnapshotFunction,
             Function<JobID, CompletableFuture<JobResult>> requestJobResultFunction,
             Function<JobID, CompletableFuture<JobStatus>> requestJobStatusFunction,
             Supplier<CompletableFuture<MultipleJobsDetails>> requestMultipleJobDetailsSupplier,
@@ -127,6 +132,10 @@ public final class TestingDispatcherGateway extends TestingRestfulGateway
             Supplier<CompletableFuture<Collection<Tuple2<ResourceID, String>>>>
                     requestTaskManagerMetricQueryServiceGatewaysSupplier,
             Supplier<CompletableFuture<ThreadDumpInfo>> requestThreadDumpSupplier,
+            BiFunction<AsynchronousJobOperationKey, CheckpointType, CompletableFuture<Acknowledge>>
+                    triggerCheckpointFunction,
+            Function<AsynchronousJobOperationKey, CompletableFuture<OperationResult<Long>>>
+                    getCheckpointStatusFunction,
             TriFunction<
                             AsynchronousJobOperationKey,
                             String,
@@ -167,6 +176,7 @@ public final class TestingDispatcherGateway extends TestingRestfulGateway
                 cancelJobFunction,
                 requestJobFunction,
                 requestExecutionGraphInfoFunction,
+                requestCheckpointStatsSnapshotFunction,
                 requestJobResultFunction,
                 requestJobStatusFunction,
                 requestMultipleJobDetailsSupplier,
@@ -174,6 +184,8 @@ public final class TestingDispatcherGateway extends TestingRestfulGateway
                 requestMetricQueryServiceAddressesSupplier,
                 requestTaskManagerMetricQueryServiceGatewaysSupplier,
                 requestThreadDumpSupplier,
+                triggerCheckpointFunction,
+                getCheckpointStatusFunction,
                 triggerSavepointFunction,
                 stopWithSavepointFunction,
                 getSavepointStatusFunction,
@@ -347,6 +359,7 @@ public final class TestingDispatcherGateway extends TestingRestfulGateway
                     cancelJobFunction,
                     requestJobFunction,
                     requestExecutionGraphInfoFunction,
+                    requestCheckpointStatsSnapshotFunction,
                     requestJobResultFunction,
                     requestJobStatusFunction,
                     requestMultipleJobDetailsSupplier,
@@ -354,6 +367,8 @@ public final class TestingDispatcherGateway extends TestingRestfulGateway
                     requestMetricQueryServiceGatewaysSupplier,
                     requestTaskManagerMetricQueryServiceGatewaysSupplier,
                     requestThreadDumpSupplier,
+                    triggerCheckpointFunction,
+                    getCheckpointStatusFunction,
                     triggerSavepointFunction,
                     triggerSavepointAndGetLocationFunction,
                     stopWithSavepointFunction,

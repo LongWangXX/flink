@@ -38,14 +38,13 @@ import org.apache.flink.runtime.state.AbstractKeyedStateBackendBuilder;
 import org.apache.flink.runtime.state.BackendBuildingException;
 import org.apache.flink.runtime.state.CompositeKeySerializationUtils;
 import org.apache.flink.runtime.state.IncrementalKeyedStateHandle;
+import org.apache.flink.runtime.state.IncrementalKeyedStateHandle.HandleAndLocalPath;
 import org.apache.flink.runtime.state.KeyGroupRange;
 import org.apache.flink.runtime.state.KeyedStateHandle;
 import org.apache.flink.runtime.state.LocalRecoveryConfig;
 import org.apache.flink.runtime.state.PriorityQueueSetFactory;
 import org.apache.flink.runtime.state.SerializedCompositeKeyBuilder;
-import org.apache.flink.runtime.state.StateHandleID;
 import org.apache.flink.runtime.state.StreamCompressionDecorator;
-import org.apache.flink.runtime.state.StreamStateHandle;
 import org.apache.flink.runtime.state.heap.HeapPriorityQueueSetFactory;
 import org.apache.flink.runtime.state.heap.HeapPriorityQueueSnapshotRestoreWrapper;
 import org.apache.flink.runtime.state.heap.InternalKeyContext;
@@ -166,7 +165,7 @@ public class RocksDBKeyedStateBackendBuilder<K> extends AbstractKeyedStateBacken
         this.columnFamilyOptionsFactory = Preconditions.checkNotNull(columnFamilyOptionsFactory);
         this.optionsContainer = optionsContainer;
         this.instanceBasePath = instanceBasePath;
-        this.instanceRocksDBPath = new File(instanceBasePath, DB_INSTANCE_DIR_STRING);
+        this.instanceRocksDBPath = getInstanceRocksDBPath(instanceBasePath);
         this.metricGroup = metricGroup;
         this.enableIncrementalCheckpointing = false;
         this.nativeMetricOptions = new RocksDBNativeMetricOptions();
@@ -264,6 +263,10 @@ public class RocksDBKeyedStateBackendBuilder<K> extends AbstractKeyedStateBacken
         return this;
     }
 
+    public static File getInstanceRocksDBPath(File instanceBasePath) {
+        return new File(instanceBasePath, DB_INSTANCE_DIR_STRING);
+    }
+
     private static void checkAndCreateDirectory(File directory) throws IOException {
         if (directory.exists()) {
             if (!directory.isDirectory()) {
@@ -302,8 +305,7 @@ public class RocksDBKeyedStateBackendBuilder<K> extends AbstractKeyedStateBacken
         try {
             // Variables for snapshot strategy when incremental checkpoint is enabled
             UUID backendUID = UUID.randomUUID();
-            SortedMap<Long, Map<StateHandleID, StreamStateHandle>> materializedSstFiles =
-                    new TreeMap<>();
+            SortedMap<Long, Collection<HandleAndLocalPath>> materializedSstFiles = new TreeMap<>();
             long lastCompletedCheckpointId = -1L;
             if (injectedTestDB != null) {
                 db = injectedTestDB;
@@ -521,7 +523,7 @@ public class RocksDBKeyedStateBackendBuilder<K> extends AbstractKeyedStateBacken
             int keyGroupPrefixBytes,
             RocksDB db,
             UUID backendUID,
-            SortedMap<Long, Map<StateHandleID, StreamStateHandle>> materializedSstFiles,
+            SortedMap<Long, Collection<HandleAndLocalPath>> materializedSstFiles,
             long lastCompletedCheckpointId) {
         RocksDBSnapshotStrategyBase<K, ?> checkpointSnapshotStrategy;
         RocksDBStateUploader stateUploader =

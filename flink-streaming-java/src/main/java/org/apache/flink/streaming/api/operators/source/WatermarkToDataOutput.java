@@ -42,7 +42,18 @@ public final class WatermarkToDataOutput implements WatermarkOutput {
 
     @VisibleForTesting
     public WatermarkToDataOutput(PushingAsyncDataInput.DataOutput<?> output) {
-        this(output, watermark -> {});
+        this(
+                output,
+                new TimestampsAndWatermarks.WatermarkUpdateListener() {
+                    @Override
+                    public void updateIdle(boolean isIdle) {}
+
+                    @Override
+                    public void updateCurrentEffectiveWatermark(long watermark) {}
+
+                    @Override
+                    public void updateCurrentSplitWatermark(String splitId, long watermark) {}
+                });
     }
 
     /** Creates a new WatermarkOutput against the given DataOutput. */
@@ -84,7 +95,7 @@ public final class WatermarkToDataOutput implements WatermarkOutput {
 
         try {
             output.emitWatermarkStatus(WatermarkStatus.IDLE);
-            watermarkEmitted.updateCurrentEffectiveWatermark(Long.MAX_VALUE);
+            watermarkEmitted.updateIdle(true);
             isIdle = true;
         } catch (ExceptionInChainedOperatorException e) {
             throw e;
@@ -110,7 +121,7 @@ public final class WatermarkToDataOutput implements WatermarkOutput {
         }
 
         output.emitWatermarkStatus(WatermarkStatus.ACTIVE);
-        watermarkEmitted.updateCurrentEffectiveWatermark(maxWatermarkSoFar);
+        watermarkEmitted.updateIdle(false);
         isIdle = false;
         return false;
     }

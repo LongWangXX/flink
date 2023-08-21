@@ -38,6 +38,7 @@ import org.apache.flink.table.planner.expressions.ExpressionBuilder._
 import org.apache.flink.table.planner.expressions.converter.ExpressionConverter
 import org.apache.flink.table.planner.plan.logical.{LogicalWindow, SlidingGroupWindow, TumblingGroupWindow}
 import org.apache.flink.table.planner.plan.utils.{AggregateInfo, AggregateInfoList, AggregateUtil}
+import org.apache.flink.table.planner.typeutils.RowTypeUtils
 import org.apache.flink.table.planner.utils.ShortcutUtils.unwrapTypeFactory
 import org.apache.flink.table.runtime.groupwindow.NamedWindowProperty
 import org.apache.flink.table.runtime.operators.window.TimeWindow
@@ -75,14 +76,15 @@ abstract class WindowCodeGenerator(
   protected lazy val functionIdentifiers: Map[AggregateFunction[_, _], String] =
     AggCodeGenHelper.getFunctionIdentifiers(aggInfos)
 
+  private lazy val aggBufferPrefix = "window"
   protected lazy val aggBufferNames: Array[Array[String]] =
-    AggCodeGenHelper.getAggBufferNames(auxGrouping, aggInfos)
+    AggCodeGenHelper.getAggBufferNames(aggBufferPrefix, auxGrouping, aggInfos)
 
   protected lazy val aggBufferTypes: Array[Array[LogicalType]] =
     AggCodeGenHelper.getAggBufferTypes(inputRowType, auxGrouping, aggInfos)
 
   protected lazy val groupKeyRowType: RowType =
-    AggCodeGenHelper.projectRowType(inputRowType, grouping)
+    RowTypeUtils.projectRowType(inputRowType, grouping)
 
   protected lazy val timestampInternalType: LogicalType =
     if (inputTimeIsDate) new IntType() else new BigIntType()
@@ -204,6 +206,7 @@ abstract class WindowCodeGenerator(
       auxGrouping,
       aggInfos,
       argsMapping,
+      aggBufferPrefix,
       aggBufferNames,
       aggBufferTypes)
     val initAggBufferCode = genInitFlatAggregateBuffer(
@@ -226,9 +229,11 @@ abstract class WindowCodeGenerator(
       aggInfos,
       functionIdentifiers,
       argsMapping,
+      aggBufferPrefix,
       aggBufferNames,
       aggBufferTypes,
-      aggBufferExprs)
+      aggBufferExprs
+    )
 
     // --------------------------------------------------------------------------------------------
     // gen code to set group window aggregate output
@@ -245,6 +250,7 @@ abstract class WindowCodeGenerator(
         aggInfos,
         functionIdentifiers,
         argsMapping,
+        aggBufferPrefix,
         aggBufferNames,
         aggBufferTypes,
         aggBufferExprs,
@@ -442,6 +448,7 @@ abstract class WindowCodeGenerator(
           auxGrouping,
           aggInfos,
           argsMapping,
+          aggBufferPrefix,
           aggBufferNames,
           aggBufferTypes)
         val initAggBufferCode = genInitFlatAggregateBuffer(
@@ -464,9 +471,11 @@ abstract class WindowCodeGenerator(
           aggInfos,
           functionIdentifiers,
           argsMapping,
+          aggBufferPrefix,
           aggBufferNames,
           aggBufferTypes,
-          aggBufferExprs)
+          aggBufferExprs
+        )
 
         // project pre accumulated results into a binary row to fit to WindowsGrouping
         val exprCodegen = new ExprCodeGenerator(ctx, false)

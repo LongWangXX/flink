@@ -38,7 +38,15 @@ import scala.language.implicitConversions
 /**
  * Implicit conversions from Scala literals to [[Expression]] and from [[Expression]] to
  * [[ImplicitExpressionOperations]].
+ *
+ * @deprecated
+ *   All Flink Scala APIs are deprecated and will be removed in a future Flink major version. You
+ *   can still build your application in Scala, but you should move to the Java version of either
+ *   the DataStream and/or Table API.
+ * @see
+ *   <a href="https://s.apache.org/flip-265">FLIP-265 Deprecate and remove Scala API support</a>
  */
+@deprecated(since = "1.18.0")
 @PublicEvolving
 trait ImplicitExpressionConversions {
 
@@ -482,6 +490,36 @@ trait ImplicitExpressionConversions {
   }
 
   /**
+   * Converts the date string with format 'yyyy-MM-dd' to a date value of [[DataTypes.DATE]] type.
+   */
+  def toDate(dateStr: Expression): Expression = {
+    Expressions.toDate(dateStr)
+  }
+
+  /**
+   * Converts the date string with the specified format to a date value of [[DataTypes.DATE]] type.
+   */
+  def toDate(dateStr: Expression, format: Expression): Expression = {
+    Expressions.toDate(dateStr, format)
+  }
+
+  /**
+   * Converts the date time string with format 'yyyy-MM-dd HH:mm:ss' under the 'UTC+0' time zone to
+   * a timestamp value of [[DataTypes.TIMESTAMP]].
+   */
+  def toTimestamp(timestampStr: Expression): Expression = {
+    Expressions.toTimestamp(timestampStr)
+  }
+
+  /**
+   * Converts the date time string with the specified format under the 'UTC+0' time zone to a
+   * timestamp value of [[DataTypes.TIMESTAMP]].
+   */
+  def toTimestamp(timestampStr: Expression, format: Expression): Expression = {
+    Expressions.toTimestamp(timestampStr, format)
+  }
+
+  /**
    * Converts a numeric type epoch time to [[DataTypes#TIMESTAMP_LTZ]].
    *
    * The supported precision is 0 or 3:
@@ -549,6 +587,25 @@ trait ImplicitExpressionConversions {
   }
 
   /**
+   * Converts a datetime dateStr (with default ISO timestamp format 'yyyy-MM-dd HH:mm:ss') from time
+   * zone tzFrom to time zone tzTo. The format of time zone should be either an abbreviation such as
+   * "PST", a full name such as "America/Los_Angeles", or a custom ID such as "GMT-08:00". E.g.,
+   * convertTz('1970-01-01 00:00:00', 'UTC', 'America/Los_Angeles') returns '1969-12-31 16:00:00'.
+   *
+   * @param dateStr
+   *   dateStr the date time string
+   * @param tzFrom
+   *   tzFrom the original time zone
+   * @param tzTo
+   *   tzTo the target time zone
+   * @return
+   *   The formatted timestamp as string.
+   */
+  def convertTz(dateStr: Expression, tzFrom: Expression, tzTo: Expression): ApiExpression = {
+    Expressions.convertTz(dateStr, tzFrom, tzTo)
+  }
+
+  /**
    * Convert unix timestamp (seconds since '1970-01-01 00:00:00' UTC) to datetime string in the
    * "yyyy-MM-dd HH:mm:ss" format.
    */
@@ -560,6 +617,28 @@ trait ImplicitExpressionConversions {
    */
   def fromUnixtime(unixtime: Expression, format: Expression): Expression =
     Expressions.fromUnixtime(unixtime, format)
+
+  /**
+   * Gets the current unix timestamp in seconds. This function is not deterministic which means the
+   * value would be recalculated for each record.
+   */
+  def unixTimestamp(): Expression = Expressions.unixTimestamp()
+
+  /**
+   * Converts the given date time string with format 'yyyy-MM-dd HH:mm:ss' to unix timestamp (in
+   * seconds), using the time zone specified in the table config.
+   */
+  def unixTimestamp(timestampStr: Expression): Expression = {
+    Expressions.unixTimestamp(timestampStr)
+  }
+
+  /**
+   * Converts the given date time string with the specified format to unix timestamp (in seconds),
+   * using the specified timezone in table config.
+   */
+  def unixTimestamp(timestampStr: Expression, format: Expression): Expression = {
+    Expressions.unixTimestamp(timestampStr, format)
+  }
 
   /** Creates an array of literals. */
   def array(head: Expression, tail: Expression*): Expression = {
@@ -574,6 +653,11 @@ trait ImplicitExpressionConversions {
   /** Creates a map of expressions. */
   def map(key: Expression, value: Expression, tail: Expression*): Expression = {
     Expressions.map(key, value, tail: _*)
+  }
+
+  /** Creates a map from an array of keys and an array of values. */
+  def mapFromArrays(key: Expression, value: Expression): Expression = {
+    Expressions.mapFromArrays(key, value)
   }
 
   /** Returns a value that is closer than any other value to pi. */

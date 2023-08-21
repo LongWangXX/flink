@@ -23,8 +23,10 @@ import org.apache.flink.configuration.Configuration;
 import org.apache.flink.table.catalog.hive.HiveCatalog;
 import org.apache.flink.table.endpoint.hive.HiveServer2Endpoint;
 import org.apache.flink.table.gateway.containers.HiveContainer;
+import org.apache.flink.table.gateway.rest.util.SqlGatewayRestAPIVersion;
+import org.apache.flink.test.resources.ResourceTestUtils;
+import org.apache.flink.test.util.SQLJobClientMode;
 import org.apache.flink.test.util.SQLJobSubmission;
-import org.apache.flink.tests.util.TestUtils;
 import org.apache.flink.tests.util.flink.ClusterController;
 import org.apache.flink.tests.util.flink.FlinkResource;
 import org.apache.flink.tests.util.flink.FlinkResourceSetup;
@@ -49,6 +51,7 @@ import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.InetAddress;
 import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -73,8 +76,9 @@ import static org.junit.Assert.assertEquals;
 public class SqlGatewayE2ECase extends TestLogger {
 
     private static final Path HIVE_SQL_CONNECTOR_JAR =
-            TestUtils.getResource(".*dependencies/flink-sql-connector-hive-.*.jar");
-    private static final Path HADOOP_CLASS_PATH = TestUtils.getResource(".*hadoop.classpath");
+            ResourceTestUtils.getResource(".*dependencies/flink-sql-connector-hive-.*.jar");
+    private static final Path HADOOP_CLASS_PATH =
+            ResourceTestUtils.getResource(".*hadoop.classpath");
     private static final String GATEWAY_E2E_SQL = "gateway_e2e.sql";
     private static final Configuration ENDPOINT_CONFIG = new Configuration();
     private static final String RESULT_KEY = "$RESULT";
@@ -99,17 +103,31 @@ public class SqlGatewayE2ECase extends TestLogger {
     }
 
     @Test
-    public void testHiveserver2ExecuteStatement() throws Exception {
-        executeStatement(SQLJobSubmission.ClientMode.HIVE_JDBC);
+    public void testHiveServer2ExecuteStatement() throws Exception {
+        executeStatement(
+                SQLJobClientMode.getHiveJDBC(
+                        InetAddress.getByName("localhost").getHostAddress(),
+                        hiveserver2Port.getPort()));
     }
 
     @Test
     public void testRestExecuteStatement() throws Exception {
-        executeStatement(SQLJobSubmission.ClientMode.REST);
+        executeStatement(
+                SQLJobClientMode.getRestClient(
+                        InetAddress.getByName("localhost").getHostAddress(),
+                        restPort.getPort(),
+                        SqlGatewayRestAPIVersion.getDefaultVersion().toString().toLowerCase()));
     }
 
-    private void executeStatement(SQLJobSubmission.ClientMode mode) throws Exception {
-        File result = FOLDER.newFolder(mode.name() + ".csv");
+    @Test
+    public void testSqlClientExecuteStatement() throws Exception {
+        executeStatement(
+                SQLJobClientMode.getGatewaySqlClient(
+                        InetAddress.getByName("localhost").getHostAddress(), restPort.getPort()));
+    }
+
+    private void executeStatement(SQLJobClientMode mode) throws Exception {
+        File result = FOLDER.newFolder(mode.getClass().getName() + ".csv");
         try (GatewayController gateway = flinkResource.startSqlGateway();
                 ClusterController ignore = flinkResource.startCluster(1)) {
             gateway.submitSQLJob(
@@ -131,7 +149,7 @@ public class SqlGatewayE2ECase extends TestLogger {
                         .filter(line -> !line.trim().startsWith("--"))
                         .collect(Collectors.joining());
         return Arrays.stream(sql.split(";"))
-                .map(line -> line.replace(RESULT_KEY, result.getAbsolutePath()))
+                .map(line -> line.replace(RESULT_KEY, result.getAbsolutePath()) + ";")
                 .collect(Collectors.toList());
     }
 

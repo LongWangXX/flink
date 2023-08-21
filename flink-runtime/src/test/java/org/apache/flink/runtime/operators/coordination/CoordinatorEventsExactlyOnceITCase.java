@@ -51,7 +51,7 @@ import org.apache.flink.util.InstantiationUtil;
 import org.apache.flink.util.SerializedValue;
 import org.apache.flink.util.TestLogger;
 
-import org.apache.flink.shaded.guava30.com.google.common.collect.Iterators;
+import org.apache.flink.shaded.guava31.com.google.common.collect.Iterators;
 
 import org.junit.ClassRule;
 import org.junit.Test;
@@ -312,7 +312,7 @@ public class CoordinatorEventsExactlyOnceITCase extends TestLogger {
         protected int nextNumber;
 
         protected CompletableFuture<byte[]> nextToComplete;
-        private CompletableFuture<byte[]> requestedCheckpoint;
+        protected CompletableFuture<byte[]> requestedCheckpoint;
 
         private SubtaskGateway subtaskGateway;
         private boolean workLoopRunning;
@@ -683,7 +683,7 @@ public class CoordinatorEventsExactlyOnceITCase extends TestLogger {
             return MAP_FOR_OPERATOR.computeIfAbsent(operatorName, (key) -> new TestScript());
         }
 
-        static void reset() {
+        public static void reset() {
             MAP_FOR_OPERATOR.clear();
         }
 

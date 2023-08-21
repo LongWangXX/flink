@@ -69,7 +69,7 @@ Prerequisites for building Flink:
 
 * Unix-like environment (we use Linux, Mac OS X, Cygwin, WSL)
 * Git
-* Maven (we recommend version 3.2.5 and require at least 3.1.1)
+* Maven (we recommend version 3.8.6 and require at least 3.1.1)
 * Java 8 or 11 (Java 9 or 10 may work)
 
 ```
@@ -116,7 +116,7 @@ Don’t hesitate to ask!
 
 Contact the developers and community on the [mailing lists](https://flink.apache.org/community.html#mailing-lists) if you need any help.
 
-[Open an issue](https://issues.apache.org/jira/browse/FLINK) if you found a bug in Flink.
+[Open an issue](https://issues.apache.org/jira/browse/FLINK) if you find a bug in Flink.
 
 
 ## Documentation

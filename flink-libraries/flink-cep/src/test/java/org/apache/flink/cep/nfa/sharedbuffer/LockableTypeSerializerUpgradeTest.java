@@ -26,8 +26,6 @@ import org.apache.flink.api.common.typeutils.TypeSerializerUpgradeTestBase;
 import org.apache.flink.api.common.typeutils.base.StringSerializer;
 
 import org.hamcrest.Matcher;
-import org.junit.runner.RunWith;
-import org.junit.runners.Parameterized;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -35,29 +33,21 @@ import java.util.Collection;
 import static org.hamcrest.Matchers.is;
 
 /** A {@link TypeSerializerUpgradeTestBase} for {@link Lockable.LockableTypeSerializer}. */
-@RunWith(Parameterized.class)
-public class LockableTypeSerializerUpgradeTest
+class LockableTypeSerializerUpgradeTest
         extends TypeSerializerUpgradeTestBase<Lockable<String>, Lockable<String>> {
 
     private static final String SPEC_NAME = "lockable-type-serializer";
 
-    public LockableTypeSerializerUpgradeTest(
-            TestSpecification<Lockable<String>, Lockable<String>> testSpecification) {
-        super(testSpecification);
-    }
-
-    @Parameterized.Parameters(name = "Test Specification = {0}")
-    public static Collection<TestSpecification<?, ?>> testSpecifications() throws Exception {
+    public Collection<TestSpecification<?, ?>> createTestSpecifications(FlinkVersion flinkVersion)
+            throws Exception {
 
         ArrayList<TestSpecification<?, ?>> testSpecifications = new ArrayList<>();
-        for (FlinkVersion flinkVersion : MIGRATION_VERSIONS) {
-            testSpecifications.add(
-                    new TestSpecification<>(
-                            SPEC_NAME,
-                            flinkVersion,
-                            LockableTypeSerializerSetup.class,
-                            LockableTypeSerializerVerifier.class));
-        }
+        testSpecifications.add(
+                new TestSpecification<>(
+                        SPEC_NAME,
+                        flinkVersion,
+                        LockableTypeSerializerSetup.class,
+                        LockableTypeSerializerVerifier.class));
         return testSpecifications;
     }
 

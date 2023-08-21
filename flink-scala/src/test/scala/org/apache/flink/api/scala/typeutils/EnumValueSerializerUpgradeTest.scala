@@ -20,18 +20,32 @@ package org.apache.flink.api.scala.typeutils
 import org.apache.flink.FlinkVersion
 import org.apache.flink.api.common.typeutils.{TypeSerializer, TypeSerializerMatchers, TypeSerializerSchemaCompatibility, TypeSerializerUpgradeTestBase}
 import org.apache.flink.api.common.typeutils.TypeSerializerUpgradeTestBase.TestSpecification
+import org.apache.flink.api.scala.typeutils.EnumValueSerializerUpgradeTest.{EnumValueSerializerSetup, EnumValueSerializerVerifier}
 
 import org.hamcrest.Matcher
 import org.hamcrest.Matchers.is
-import org.junit.runner.RunWith
-import org.junit.runners.Parameterized
 
 import java.util
 
 /** A [[TypeSerializerUpgradeTestBase]] for [[EnumValueSerializer]]. */
-@RunWith(classOf[Parameterized])
-class EnumValueSerializerUpgradeTest(spec: TestSpecification[Letters.Value, Letters.Value])
-  extends TypeSerializerUpgradeTestBase[Letters.Value, Letters.Value](spec) {}
+class EnumValueSerializerUpgradeTest
+  extends TypeSerializerUpgradeTestBase[Letters.Value, Letters.Value] {
+
+  override def createTestSpecifications(
+      migrationVersion: FlinkVersion): util.Collection[TestSpecification[_, _]] = {
+    val testSpecifications =
+      new util.ArrayList[TypeSerializerUpgradeTestBase.TestSpecification[_, _]]
+
+    testSpecifications.add(
+      new TypeSerializerUpgradeTestBase.TestSpecification[Letters.Value, Letters.Value](
+        "scala-enum-serializer",
+        migrationVersion,
+        classOf[EnumValueSerializerSetup],
+        classOf[EnumValueSerializerVerifier]))
+
+    testSpecifications
+  }
+}
 
 object EnumValueSerializerUpgradeTest {
 
@@ -40,23 +54,6 @@ object EnumValueSerializerUpgradeTest {
       override def get(): EnumValueSerializer[Letters.type] =
         new EnumValueSerializer(Letters)
     }
-
-  @Parameterized.Parameters(name = "Test Specification = {0}")
-  def testSpecifications(): util.Collection[TestSpecification[_, _]] = {
-    val testSpecifications =
-      new util.ArrayList[TypeSerializerUpgradeTestBase.TestSpecification[_, _]]
-
-    TypeSerializerUpgradeTestBase.MIGRATION_VERSIONS.forEach(
-      migrationVersion =>
-        testSpecifications.add(
-          new TypeSerializerUpgradeTestBase.TestSpecification[Letters.Value, Letters.Value](
-            "scala-enum-serializer",
-            migrationVersion,
-            classOf[EnumValueSerializerSetup],
-            classOf[EnumValueSerializerVerifier])))
-
-    testSpecifications
-  }
 
   /**
    * This class is only public to work with

@@ -33,15 +33,18 @@ import org.apache.flink.table.catalog.ResolvedCatalogTable;
 import org.apache.flink.table.catalog.ResolvedSchema;
 import org.apache.flink.table.catalog.WatermarkSpec;
 import org.apache.flink.table.connector.ChangelogMode;
+import org.apache.flink.table.connector.RowLevelModificationScanContext;
 import org.apache.flink.table.connector.source.DynamicTableSource;
 import org.apache.flink.table.connector.source.ScanTableSource;
 import org.apache.flink.table.connector.source.ScanTableSource.ScanRuntimeProvider;
 import org.apache.flink.table.connector.source.abilities.SupportsReadingMetadata;
+import org.apache.flink.table.connector.source.abilities.SupportsRowLevelModificationScan;
 import org.apache.flink.table.planner.calcite.FlinkRelBuilder;
 import org.apache.flink.table.planner.expressions.converter.ExpressionConverter;
 import org.apache.flink.table.planner.plan.abilities.source.SourceAbilitySpec;
 import org.apache.flink.table.planner.plan.schema.TableSourceTable;
 import org.apache.flink.table.planner.plan.stats.FlinkStatistic;
+import org.apache.flink.table.planner.utils.RowLevelModificationContextUtils;
 import org.apache.flink.table.planner.utils.ShortcutUtils;
 import org.apache.flink.table.runtime.connector.source.ScanRuntimeProviderContext;
 import org.apache.flink.table.types.DataType;
@@ -157,6 +160,7 @@ public final class DynamicSourceUtils {
         if (source instanceof ScanTableSource) {
             validateScanSource(
                     tableDebugName, schema, (ScanTableSource) source, isBatchMode, config);
+            prepareRowLevelModificationScan(source);
         }
 
         // lookup table source is validated in LookupJoin node
@@ -174,6 +178,24 @@ public final class DynamicSourceUtils {
      */
     public static List<MetadataColumn> createRequiredMetadataColumns(
             ResolvedSchema schema, DynamicTableSource source) {
+
+        final Map<String, MetadataColumn> metadataKeysToMetadataColumns =
+                createMetadataKeysToMetadataColumnsMap(schema);
+        final Map<String, DataType> metadataMap = extractMetadataMap(source);
+
+        // reorder the column
+        return metadataMap.keySet().stream()
+                .filter(metadataKeysToMetadataColumns::containsKey)
+                .map(metadataKeysToMetadataColumns::get)
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * Returns a map record the mapping relation between metadataKeys to metadataColumns in input
+     * schema.
+     */
+    public static Map<String, MetadataColumn> createMetadataKeysToMetadataColumnsMap(
+            ResolvedSchema schema) {
         final List<MetadataColumn> metadataColumns = extractMetadataColumns(schema);
 
         Map<String, MetadataColumn> metadataKeysToMetadataColumns = new HashMap<>();
@@ -184,13 +206,7 @@ public final class DynamicSourceUtils {
             metadataKeysToMetadataColumns.put(metadataKey, column);
         }
 
-        final Map<String, DataType> metadataMap = extractMetadataMap(source);
-
-        // reorder the column
-        return metadataMap.keySet().stream()
-                .filter(metadataKeysToMetadataColumns::containsKey)
-                .map(metadataKeysToMetadataColumns::get)
-                .collect(Collectors.toList());
+        return metadataKeysToMetadataColumns;
     }
 
     /**
@@ -378,7 +394,7 @@ public final class DynamicSourceUtils {
                 .collect(Collectors.toList());
     }
 
-    private static void validateAndApplyMetadata(
+    public static void validateAndApplyMetadata(
             String tableDebugName, ResolvedSchema schema, DynamicTableSource source) {
         final List<MetadataColumn> metadataColumns = extractMetadataColumns(schema);
 
@@ -479,8 +495,11 @@ public final class DynamicSourceUtils {
             ChangelogMode changelogMode,
             ReadableConfig config) {
         // sanity check for produced ChangelogMode
-        final boolean hasUpdateBefore = changelogMode.contains(RowKind.UPDATE_BEFORE);
-        final boolean hasUpdateAfter = changelogMode.contains(RowKind.UPDATE_AFTER);
+        final boolean hasChangelogMode = changelogMode != null;
+        final boolean hasUpdateBefore =
+                hasChangelogMode && changelogMode.contains(RowKind.UPDATE_BEFORE);
+        final boolean hasUpdateAfter =
+                hasChangelogMode && changelogMode.contains(RowKind.UPDATE_AFTER);
         if (!hasUpdateBefore && hasUpdateAfter) {
             // only UPDATE_AFTER
             if (!schema.getPrimaryKey().isPresent()) {
@@ -499,7 +518,7 @@ public final class DynamicSourceUtils {
                             tableDebugName,
                             ScanTableSource.class.getSimpleName(),
                             scanSource.getClass().getName()));
-        } else if (!changelogMode.containsOnly(RowKind.INSERT)) {
+        } else if (hasChangelogMode && !changelogMode.containsOnly(RowKind.INSERT)) {
             // CDC mode (non-upsert mode and non-insert-only mode)
             final boolean changeEventsDuplicate =
                     config.get(ExecutionConfigOptions.TABLE_EXEC_SOURCE_CDC_EVENTS_DUPLICATE);
@@ -552,6 +571,26 @@ public final class DynamicSourceUtils {
                     String.format(
                             "A nested field '%s' cannot be declared as rowtime attribute for table '%s' right now.",
                             rowtimeAttribute, tableDebugName));
+        }
+    }
+
+    private static void prepareRowLevelModificationScan(DynamicTableSource dynamicTableSource) {
+        // if the modification type has been set and the dynamic source supports row-level
+        // modification scan
+        if (RowLevelModificationContextUtils.getModificationType() != null
+                && dynamicTableSource instanceof SupportsRowLevelModificationScan) {
+            SupportsRowLevelModificationScan modificationScan =
+                    (SupportsRowLevelModificationScan) dynamicTableSource;
+            // get the previous scan context
+            RowLevelModificationScanContext scanContext =
+                    RowLevelModificationContextUtils.getScanContext();
+            // pass the previous scan context to current table soruce and
+            // get a new scan context
+            RowLevelModificationScanContext newScanContext =
+                    modificationScan.applyRowLevelModificationScan(
+                            RowLevelModificationContextUtils.getModificationType(), scanContext);
+            // set the scan context
+            RowLevelModificationContextUtils.setScanContext(newScanContext);
         }
     }
 

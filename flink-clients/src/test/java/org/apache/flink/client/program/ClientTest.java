@@ -54,14 +54,10 @@ import org.apache.flink.runtime.jobgraph.JobGraph;
 import org.apache.flink.runtime.testutils.InternalMiniClusterExtension;
 import org.apache.flink.runtime.testutils.MiniClusterResourceConfiguration;
 import org.apache.flink.util.FlinkRuntimeException;
-import org.apache.flink.util.NetUtils;
 
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
-import org.mockito.invocation.InvocationOnMock;
-import org.mockito.stubbing.Answer;
 
 import javax.annotation.Nonnull;
 
@@ -70,13 +66,11 @@ import java.util.Collections;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Stream;
 
+import static org.apache.flink.core.testutils.FlinkAssertions.assertThatFuture;
 import static org.apache.flink.util.Preconditions.checkNotNull;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.fail;
-import static org.mockito.Mockito.doAnswer;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
 
 /** Simple and maybe stupid test to check the {@link ClusterClient} class. */
 class ClientTest {
@@ -87,8 +81,6 @@ class ClientTest {
                     new MiniClusterResourceConfiguration.Builder().build());
 
     private Plan plan;
-
-    private NetUtils.Port port;
 
     private Configuration config;
 
@@ -108,18 +100,9 @@ class ClientTest {
 
         config = new Configuration();
         config.setString(JobManagerOptions.ADDRESS, "localhost");
-        port = NetUtils.getAvailablePort();
-        config.setInteger(JobManagerOptions.PORT, port.getPort());
 
         config.set(
                 AkkaOptions.ASK_TIMEOUT_DURATION, AkkaOptions.ASK_TIMEOUT_DURATION.defaultValue());
-    }
-
-    @AfterEach
-    void tearDown() throws Exception {
-        if (port != null) {
-            port.close();
-        }
     }
 
     private Configuration fromPackagedProgram(
@@ -281,14 +264,23 @@ class ClientTest {
     void shouldSubmitToJobClient() {
         final ClusterClient<?> clusterClient =
                 new MiniClusterClient(new Configuration(), MINI_CLUSTER_RESOURCE.getMiniCluster());
-        JobGraph jobGraph = FlinkPipelineTranslationUtil.getJobGraph(plan, new Configuration(), 1);
+        JobGraph jobGraph =
+                FlinkPipelineTranslationUtil.getJobGraph(
+                        Thread.currentThread().getContextClassLoader(),
+                        plan,
+                        new Configuration(),
+                        1);
 
         jobGraph.addJars(Collections.emptyList());
         jobGraph.setClasspaths(Collections.emptyList());
 
-        assertThat(clusterClient.submitJob(jobGraph))
-                .succeedsWithin(AkkaOptions.ASK_TIMEOUT_DURATION.defaultValue())
-                .isNotNull();
+        assertThatFuture(clusterClient.submitJob(jobGraph)).eventuallySucceeds().isNotNull();
+    }
+
+    public static class TestEntrypoint {
+        public static void main(String[] args) {
+            ExecutionEnvironment.createLocalEnvironment();
+        }
     }
 
     /**
@@ -297,21 +289,10 @@ class ClientTest {
      */
     @Test
     void tryLocalExecution() throws ProgramInvocationException {
-        PackagedProgram packagedProgramMock = mock(PackagedProgram.class);
-
-        when(packagedProgramMock.getUserCodeClassLoader())
-                .thenReturn(packagedProgramMock.getClass().getClassLoader());
-
-        doAnswer(
-                        new Answer<Void>() {
-                            @Override
-                            public Void answer(InvocationOnMock invocation) throws Throwable {
-                                ExecutionEnvironment.createLocalEnvironment();
-                                return null;
-                            }
-                        })
-                .when(packagedProgramMock)
-                .invokeInteractiveModeForExecution();
+        final PackagedProgram packagedProgramMock =
+                PackagedProgram.newBuilder()
+                        .setEntryPointClassName(TestEntrypoint.class.getName())
+                        .build();
 
         try (final ClusterClient<?> client =
                 new MiniClusterClient(
@@ -329,7 +310,8 @@ class ClientTest {
                                 fail(
                                         "Creating the local execution environment should not be possible");
                             })
-                    .isInstanceOf(InvalidProgramException.class);
+                    .isInstanceOf(ProgramInvocationException.class)
+                    .hasCauseInstanceOf(InvalidProgramException.class);
         }
     }
 
@@ -373,7 +355,7 @@ class ClientTest {
                             .build();
 
             final Configuration configuration = fromPackagedProgram(program, 1, false);
-            configuration.set(DeploymentOptions.ALLOW_CLIENT_JOB_CONFIGURATIONS, false);
+            configuration.set(DeploymentOptions.PROGRAM_CONFIG_ENABLED, false);
 
             assertThatThrownBy(
                             () ->
@@ -516,7 +498,8 @@ class ClientTest {
                     return (pipeline, config, classLoader) -> {
                         final int parallelism = config.getInteger(CoreOptions.DEFAULT_PARALLELISM);
                         final JobGraph jobGraph =
-                                FlinkPipelineTranslationUtil.getJobGraph(plan, config, parallelism);
+                                FlinkPipelineTranslationUtil.getJobGraph(
+                                        classLoader, plan, config, parallelism);
 
                         final ExecutionConfigAccessor accessor =
                                 ExecutionConfigAccessor.fromConfiguration(config);

@@ -973,6 +973,7 @@ import org.apache.flink.table.api.Table;
 import org.apache.flink.table.api.bridge.java.StreamTableEnvironment;
 import org.apache.flink.types.Row;
 import org.apache.flink.util.Collector;
+import java.time.LocalDateTime;
 
 // setup DataStream API
 StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
@@ -1714,7 +1715,7 @@ table.printSchema();
 
 // data types can be extracted reflectively as above or explicitly defined
 
-Table table3 = tableEnv
+Table table = tableEnv
     .fromDataStream(
         dataStream,
         Schema.newBuilder()
@@ -1756,6 +1757,7 @@ The following code shows how to use `createTemporaryView` for different scenario
 ```java
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.streaming.api.datastream.DataStream;
+import org.apache.flink.table.api.Schema;
 
 // create some DataStream
 DataStream<Tuple2<Long, String>> dataStream = env.fromElements(
@@ -2014,6 +2016,8 @@ DataStream<Row> dataStream = tableEnv.toDataStream(table);
 
 DataStream<User> dataStream = tableEnv.toDataStream(table, User.class);
 
+// === EXAMPLE 3 ===
+
 // data types can be extracted reflectively as above or explicitly defined
 
 DataStream<User> dataStream =
@@ -2068,6 +2072,8 @@ val dataStream: DataStream[Row] = tableEnv.toDataStream(table)
 // metadata and watermarks are propagated
 
 val dataStream: DataStream[User] = tableEnv.toDataStream(table, classOf[User])
+
+// === EXAMPLE 3 ===
 
 // data types can be extracted reflectively as above or explicitly defined
 
@@ -2892,7 +2898,7 @@ from pyflink.common import Encoder
 from pyflink.datastream import StreamExecutionEnvironment
 from pyflink.datastream.connectors.file_system import FileSink
 from pyflink.table import StreamTableEnvironment, TableDescriptor, Schema, DataTypes
-    
+
 env = StreamExecutionEnvironment.get_execution_environment()
 table_env = StreamTableEnvironment.create(env)
 
@@ -3384,7 +3390,7 @@ table = t_env.from_data_stream(stream, col('my_long'))
 {{< tabs "27c312af-7427-401c-a1b1-de9fe39f7b59" >}}
 {{< tab "Java" >}}
 Flink provides its own tuple classes for Java.
-DataStreams of the the Java tuple classes can be converted into tables.
+DataStreams of the Java tuple classes can be converted into tables.
 Fields can be renamed by providing names for all fields (mapping based on position).
 If no field names are specified, the default field names are used.
 If the original field names (`f0`, `f1`, ... for Flink Tuples) are referenced, the API assumes that the mapping is name-based instead of position-based.

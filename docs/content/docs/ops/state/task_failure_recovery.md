@@ -40,7 +40,7 @@ The cluster can be started with a default restart strategy which is always used 
 In case that the job is submitted with a restart strategy, this strategy overrides the cluster's default setting.
 
 The default restart strategy is set via Flink's configuration file `flink-conf.yaml`.
-The configuration parameter *restart-strategy* defines which strategy is taken.
+The configuration parameter *restart-strategy.type* defines which strategy is taken.
 If checkpointing is not enabled, the "no restart" strategy is used.
 If checkpointing is activated and the restart strategy has not been configured, the fixed-delay strategy is used with 
 `Integer.MAX_VALUE` restart attempts.
@@ -100,7 +100,7 @@ In-between two consecutive restart attempts, the restart strategy waits a fixed 
 This strategy is enabled as default by setting the following configuration parameter in `flink-conf.yaml`.
 
 ```yaml
-restart-strategy: fixed-delay
+restart-strategy.type: fixed-delay
 ```
 
 {{< generated/fixed_delay_restart_strategy_configuration >}}
@@ -155,7 +155,7 @@ Then, it keeps the delay at the maximum number.
 When the job executes correctly, the exponential delay value resets after some time; this threshold is configurable.
 
 ```yaml
-restart-strategy: exponential-delay
+restart-strategy.type: exponential-delay
 ```
 
 {{< generated/exponential_delay_restart_strategy_configuration >}}
@@ -212,7 +212,7 @@ In-between two consecutive restart attempts, the restart strategy waits a fixed 
 This strategy is enabled as default by setting the following configuration parameter in `flink-conf.yaml`.
 
 ```yaml
-restart-strategy: failure-rate
+restart-strategy.type: failure-rate
 ```
 
 {{< generated/failure_rate_restart_strategy_configuration >}}
@@ -264,7 +264,7 @@ env.set_restart_strategy(RestartStrategies.failure_rate_restart(
 The job fails directly and no restart is attempted.
 
 ```yaml
-restart-strategy: none
+restart-strategy.type: none
 ```
 
 The no restart strategy can also be set programmatically:
@@ -332,11 +332,10 @@ For some jobs this can result in fewer tasks that will be restarted compared to 
 
 A region is a set of tasks that communicate via pipelined data exchanges. 
 That is, batch data exchanges denote the boundaries of a region.
-- All data exchanges in a DataStream job or Streaming Table/SQL job are pipelined.
-- All data exchanges in a Batch Table/SQL job are batched by default.
-- The data exchange types in a DataSet job are determined by the 
-  `ExecutionMode` 
-  which can be set through [ExecutionConfig]({{< ref "docs/dev/datastream/execution/execution_configuration" >}}).
+
+DataStream/Table/SQL job data exchanges are determined by the `ExecutionMode`, 
+which can be set through [ExecutionConfig]({{< ref "docs/dev/datastream/execution/execution_configuration" >}}),
+which are pipelined in Streaming Mode, are batched by default in Batch Mode.
 
 The regions to restart are decided as below:
 1. The region containing the failed task will be restarted.

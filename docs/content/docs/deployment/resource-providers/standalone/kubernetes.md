@@ -36,6 +36,10 @@ This *Getting Started* guide describes how to deploy a *Session cluster* on [Kub
 This page describes deploying a [standalone]({{< ref "docs/deployment/resource-providers/standalone/overview" >}}) Flink cluster on top of Kubernetes, using Flink's standalone deployment.
 We generally recommend new users to deploy Flink on Kubernetes using [native Kubernetes deployments]({{< ref "docs/deployment/resource-providers/native_kubernetes" >}}).
 
+Apache Flink also provides a Kubernetes operator for managing Flink clusters on Kubernetes. It supports both standalone and native deployment mode and greatly simplifies deployment, configuration and the life cycle management of Flink resources on Kubernetes.
+
+For more information, please refer to the [Flink Kubernetes Operator documentation](https://nightlies.apache.org/flink/flink-kubernetes-operator-docs-main/docs/concepts/overview/)
+
 ### Preparation
 
 This guide expects a Kubernetes environment to be present. You can ensure that your Kubernetes setup is working by running a command like `kubectl get nodes`, which lists all connected Kubelets. 
@@ -64,7 +68,7 @@ Using the file contents provided in the [the common resource definitions](#commo
     $ kubectl create -f flink-configuration-configmap.yaml
     $ kubectl create -f jobmanager-service.yaml
     # Create the deployments for the cluster
-    $ kubectl create -f jobmanager-session-deployment.yaml
+    $ kubectl create -f jobmanager-session-deployment-non-ha.yaml
     $ kubectl create -f taskmanager-session-deployment.yaml
 ```
 
@@ -85,7 +89,7 @@ You can tear down the cluster using the following commands:
     $ kubectl delete -f jobmanager-service.yaml
     $ kubectl delete -f flink-configuration-configmap.yaml
     $ kubectl delete -f taskmanager-session-deployment.yaml
-    $ kubectl delete -f jobmanager-session-deployment.yaml
+    $ kubectl delete -f jobmanager-session-deployment-non-ha.yaml
 ```
 
 
@@ -213,9 +217,9 @@ data:
   flink-conf.yaml: |+
   ...
     kubernetes.cluster-id: <cluster-id>
-    high-availability: kubernetes
+    high-availability.type: kubernetes
     high-availability.storageDir: hdfs:///flink/recovery
-    restart-strategy: fixed-delay
+    restart-strategy.type: fixed-delay
     restart-strategy.fixed-delay.attempts: 10
   ...
 ```
@@ -231,12 +235,6 @@ Refer to the [appendix](#appendix) for full configuration.
 
 Usually, it is enough to only start a single JobManager pod, because Kubernetes will restart it once the pod crashes.
 If you want to achieve faster recovery, configure the `replicas` in `jobmanager-session-deployment-ha.yaml` or `parallelism` in `jobmanager-application-ha.yaml` to a value greater than `1` to start standby JobManagers.
-
-### Enabling Queryable State
-
-You can access the queryable state of TaskManager if you create a `NodePort` service for it:
-  1. Run `kubectl create -f taskmanager-query-state-service.yaml` to create the `NodePort` service for the `taskmanager` pod. The example of `taskmanager-query-state-service.yaml` can be found in [appendix](#common-cluster-resource-definitions).
-  2. Run `kubectl get svc flink-taskmanager-query-state` to get the `<node-port>` of this service. Then you can create the [QueryableStateClient(&lt;public-node-ip&gt;, &lt;node-port&gt;]({{< ref "docs/dev/datastream/fault-tolerance/queryable_state" >}}#querying-state) to submit state queries.
 
 ### Using Standalone Kubernetes with Reactive Mode
 
@@ -278,7 +276,6 @@ data:
     blob.server.port: 6124
     jobmanager.rpc.port: 6123
     taskmanager.rpc.port: 6122
-    queryable-state.proxy.ports: 6125
     jobmanager.memory.process.size: 1600m
     taskmanager.memory.process.size: 1728m
     parallelism.default: 2
@@ -295,8 +292,8 @@ data:
     # The following lines keep the log level of common libraries/connectors on
     # log level INFO. The root logger does not override this. You have to manually
     # change the log levels here.
-    logger.akka.name = akka
-    logger.akka.level = INFO
+    logger.pekko.name = org.apache.pekko
+    logger.pekko.level = INFO
     logger.kafka.name= org.apache.kafka
     logger.kafka.level = INFO
     logger.hadoop.name = org.apache.hadoop
@@ -346,7 +343,6 @@ data:
     blob.server.port: 6124
     jobmanager.rpc.port: 6123
     taskmanager.rpc.port: 6122
-    queryable-state.proxy.ports: 6125
     jobmanager.memory.process.size: 1600m
     taskmanager.memory.process.size: 1728m
     parallelism.default: 2
@@ -365,8 +361,8 @@ data:
     # The following lines keep the log level of common libraries/connectors on
     # log level INFO. The root logger does not override this. You have to manually
     # change the log levels here.
-    logger.akka.name = akka
-    logger.akka.level = INFO
+    logger.pekko.name = org.apache.pekko
+    logger.pekko.level = INFO
     logger.kafka.name= org.apache.kafka
     logger.kafka.level = INFO
     logger.hadoop.name = org.apache.hadoop
@@ -435,24 +431,6 @@ spec:
   selector:
     app: flink
     component: jobmanager
-```
-
-`taskmanager-query-state-service.yaml`. Optional service, that exposes the TaskManager port to access the queryable state as a public Kubernetes node's port.
-```yaml
-apiVersion: v1
-kind: Service
-metadata:
-  name: flink-taskmanager-query-state
-spec:
-  type: NodePort
-  ports:
-  - name: query-state
-    port: 6125
-    targetPort: 6125
-    nodePort: 30025
-  selector:
-    app: flink
-    component: taskmanager
 ```
 
 ### Session cluster resource definitions
@@ -590,8 +568,6 @@ spec:
         ports:
         - containerPort: 6122
           name: rpc
-        - containerPort: 6125
-          name: query-state
         livenessProbe:
           tcpSocket:
             port: 6122
@@ -753,8 +729,6 @@ spec:
         ports:
         - containerPort: 6122
           name: rpc
-        - containerPort: 6125
-          name: query-state
         livenessProbe:
           tcpSocket:
             port: 6122
@@ -842,8 +816,6 @@ spec:
         ports:
         - containerPort: 6122
           name: rpc
-        - containerPort: 6125
-          name: query-state
         - containerPort: 6121
           name: metrics
         livenessProbe:

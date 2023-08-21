@@ -29,7 +29,7 @@ import org.apache.flink.table.types.logical.RowType;
 import org.apache.flink.table.types.utils.TypeConversions;
 import org.apache.flink.util.Preconditions;
 
-import org.apache.flink.shaded.guava30.com.google.common.collect.Streams;
+import org.apache.flink.shaded.guava31.com.google.common.collect.Streams;
 
 import java.io.Serializable;
 import java.nio.charset.Charset;
@@ -346,7 +346,7 @@ public class HBaseTableSchema implements Serializable {
 
     // ------------------------------------------------------------------------------------
 
-    /** An class contains information about rowKey, such as rowKeyName, rowKeyType, rowKeyIndex. */
+    /** A class containing information about rowKey, such as rowKeyName, rowKeyType, rowKeyIndex. */
     private static class RowKeyInfo implements Serializable {
         private static final long serialVersionUID = 1L;
         final String rowKeyName;

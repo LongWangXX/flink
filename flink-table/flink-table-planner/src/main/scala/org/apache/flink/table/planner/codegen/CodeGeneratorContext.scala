@@ -22,7 +22,7 @@ import org.apache.flink.api.common.typeutils.TypeSerializer
 import org.apache.flink.configuration.ReadableConfig
 import org.apache.flink.table.data.GenericRowData
 import org.apache.flink.table.data.conversion.{DataStructureConverter, DataStructureConverters}
-import org.apache.flink.table.functions.{FunctionContext, UserDefinedFunction}
+import org.apache.flink.table.functions.{FunctionContext, TableFunction, UserDefinedFunction}
 import org.apache.flink.table.planner.codegen.CodeGenUtils._
 import org.apache.flink.table.planner.codegen.GenerateUtils.generateRecordStatement
 import org.apache.flink.table.planner.utils.{InternalConfigOptions, TableConfigUtils}
@@ -69,6 +69,11 @@ class CodeGeneratorContext(val tableConfig: ReadableConfig, val classLoader: Cla
   private val reusableOpenStatements: mutable.LinkedHashSet[String] =
     mutable.LinkedHashSet[String]()
 
+  // set of finish statements for RichFunction that will be added only once
+  // we use a LinkedHashSet to keep the insertion order
+  private val reusableFinishStatements: mutable.LinkedHashSet[String] =
+    mutable.LinkedHashSet[String]()
+
   // set of close statements for RichFunction that will be added only once
   // we use a LinkedHashSet to keep the insertion order
   private val reusableCloseStatements: mutable.LinkedHashSet[String] =
@@ -84,6 +89,14 @@ class CodeGeneratorContext(val tableConfig: ReadableConfig, val classLoader: Cla
   // we use a LinkedHashSet to keep the insertion order
   private val reusablePerRecordStatements: mutable.LinkedHashSet[String] =
     mutable.LinkedHashSet[String]()
+
+  // set of statements that will be added only for operator fusion codegen process method
+  private val reusableFusionCodegenProcessStatements: mutable.TreeMap[Int, String] =
+    mutable.TreeMap[Int, String]()
+
+  // set of statements that will be added only for operator fusion codegen endInput method
+  private val reusableFusionCodegenEndInputStatements: mutable.TreeMap[Int, String] =
+    mutable.TreeMap[Int, String]()
 
   // map of initial input unboxing expressions that will be added only once
   // (inputTerm, index) -> expr
@@ -275,6 +288,15 @@ class CodeGeneratorContext(val tableConfig: ReadableConfig, val classLoader: Cla
 
   /**
    * @return
+   *   code block of statements that need to be placed in the finish() method (e.g. RichFunction or
+   *   StreamOperator)
+   */
+  def reuseFinishCode(): String = {
+    reusableFinishStatements.mkString("\n")
+  }
+
+  /**
+   * @return
    *   code block of statements that need to be placed in the close() method (e.g. RichFunction or
    *   StreamOperator)
    */
@@ -289,6 +311,38 @@ class CodeGeneratorContext(val tableConfig: ReadableConfig, val classLoader: Cla
    */
   def reuseCleanupCode(): String = {
     reusableCleanupStatements.mkString("", "\n", "\n")
+  }
+
+  /**
+   * @return
+   *   code block of statements that need to be placed in the getInputs() method of
+   *   [FusionStreamOperator]
+   */
+  def reuseFusionProcessCode(): String = {
+    reusableFusionCodegenProcessStatements.values.mkString(",\n")
+  }
+
+  /**
+   * @return
+   *   code block of statements that need to be placed in the endInput() method of
+   *   [BoundedMultiInput]
+   */
+  def reuseFusionEndInputCode(inputId: String): String = {
+    val endInputCode = reusableFusionCodegenEndInputStatements
+      .map {
+        case (id, code) => s"""
+                              |case $id:
+                              |  $code
+                              |  break;
+                              |""".stripMargin
+      }
+      .mkString("\n")
+
+    s"""
+       |switch($inputId) {
+       |  $endInputCode
+       |}
+       |""".stripMargin
   }
 
   /**
@@ -360,11 +414,22 @@ class CodeGeneratorContext(val tableConfig: ReadableConfig, val classLoader: Cla
   /** Adds a reusable open statement */
   def addReusableOpenStatement(s: String): Unit = reusableOpenStatements.add(s)
 
+  /** Adds a reusable finish statement */
+  def addReusableFinishStatement(s: String): Unit = reusableFinishStatements.add(s)
+
   /** Adds a reusable close statement */
   def addReusableCloseStatement(s: String): Unit = reusableCloseStatements.add(s)
 
   /** Adds a reusable cleanup statement */
   def addReusableCleanupStatement(s: String): Unit = reusableCleanupStatements.add(s)
+
+  /** Adds a reusable fusion codegen process statement */
+  def addReusableFusionCodegenProcessStatement(inputId: Int, s: String): Unit =
+    reusableFusionCodegenProcessStatements.put(inputId, s)
+
+  /** Adds a reusable fusion codegen endInput statement */
+  def addReusableFusionCodegenEndInputStatement(inputId: Int, s: String): Unit =
+    reusableFusionCodegenEndInputStatements.put(inputId, s)
 
   /** Adds a reusable input unboxing expression */
   def addReusableInputUnboxingExprs(
@@ -768,10 +833,12 @@ class CodeGeneratorContext(val tableConfig: ReadableConfig, val classLoader: Cla
     }
     reusableOpenStatements.add(openFunction)
 
-    val closeFunction =
-      s"""
-         |$fieldTerm.close();
-       """.stripMargin
+    if (function.isInstanceOf[TableFunction[_]]) {
+      val finishFunction = s"$fieldTerm.finish();"
+      reusableFinishStatements.add(finishFunction)
+    }
+
+    val closeFunction = s"$fieldTerm.close();"
     reusableCloseStatements.add(closeFunction)
 
     fieldTerm

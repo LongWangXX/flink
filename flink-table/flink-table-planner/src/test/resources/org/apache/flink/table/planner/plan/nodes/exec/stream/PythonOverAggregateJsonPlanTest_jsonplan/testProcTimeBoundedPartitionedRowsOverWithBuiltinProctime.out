@@ -244,7 +244,7 @@
       } ],
       "constants" : [ {
         "kind" : "LITERAL",
-        "value" : "4",
+        "value" : 4,
         "type" : "INT NOT NULL"
       } ],
       "originalInputFields" : 4
@@ -309,6 +309,7 @@
     "configuration" : {
       "table.exec.sink.keyed-shuffle" : "AUTO",
       "table.exec.sink.not-null-enforcer" : "ERROR",
+      "table.exec.sink.rowtime-inserter" : "ENABLED",
       "table.exec.sink.type-length-enforcer" : "IGNORE",
       "table.exec.sink.upsert-materialize" : "AUTO"
     },

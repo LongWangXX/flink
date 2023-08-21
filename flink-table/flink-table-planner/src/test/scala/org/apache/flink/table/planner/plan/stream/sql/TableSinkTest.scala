@@ -144,7 +144,7 @@ class TableSinkTest extends TableTestBase {
     thrown.expect(classOf[TableException])
     thrown.expectMessage(
       "OverAggregate doesn't support consuming update changes " +
-        "which is produced by node GroupAggregate(groupBy=[a], select=[a, COUNT(*) AS cnt])")
+        "which is produced by node Calc(select=[cnt])")
     util.verifyRelPlan(stmtSet, ExplainDetail.CHANGELOG_MODE)
   }
 
@@ -806,8 +806,8 @@ class TableSinkTest extends TableTestBase {
     Assertions
       .assertThatThrownBy(
         () => util.tableEnv.explainSql("CREATE TABLE zm_ctas_test AS SELECT * FROM MyTable"))
-      .hasMessage(
-        "Unsupported operation: org.apache.flink.table.operations.ddl.CreateTableASOperation")
+      .hasMessageContaining(
+        "Unsupported ModifyOperation: org.apache.flink.table.operations.CreateTableASOperation")
   }
 }
 

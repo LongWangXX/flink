@@ -167,7 +167,7 @@
               "type" : "VARCHAR(2147483647)"
             }, {
               "kind" : "LITERAL",
-              "value" : "0",
+              "value" : 0,
               "type" : "INT NOT NULL"
             } ],
             "type" : "VARCHAR(2147483647)"
@@ -192,7 +192,7 @@
               "type" : "VARCHAR(2147483647)"
             }, {
               "kind" : "LITERAL",
-              "value" : "0",
+              "value" : 0,
               "type" : "INT NOT NULL"
             } ],
             "type" : "VARCHAR(2147483647)"
@@ -217,7 +217,7 @@
               "type" : "VARCHAR(2147483647)"
             }, {
               "kind" : "LITERAL",
-              "value" : "0",
+              "value" : 0,
               "type" : "INT NOT NULL"
             } ],
             "type" : "VARCHAR(2147483647)"
@@ -305,6 +305,7 @@
     "configuration" : {
       "table.exec.sink.keyed-shuffle" : "AUTO",
       "table.exec.sink.not-null-enforcer" : "ERROR",
+      "table.exec.sink.rowtime-inserter" : "ENABLED",
       "table.exec.sink.type-length-enforcer" : "IGNORE",
       "table.exec.sink.upsert-materialize" : "AUTO"
     },

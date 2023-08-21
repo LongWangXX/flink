@@ -96,6 +96,12 @@ public class HiveOptions {
                                     + " When the value is over estimated, Flink will tend to pack Hive's data into less splits, which will be helpful when Hive's table contains many small files."
                                     + " And vice versa. It only works for the Hive table stored as ORC format.");
 
+    public static final ConfigOption<Integer> TABLE_EXEC_HIVE_CALCULATE_PARTITION_SIZE_THREAD_NUM =
+            key("table.exec.hive.calculate-partition-size.thread-num")
+                    .intType()
+                    .defaultValue(3)
+                    .withDescription("The thread number to calculate partition's size.");
+
     public static final ConfigOption<Boolean> TABLE_EXEC_HIVE_DYNAMIC_GROUPING_ENABLED =
             key("table.exec.hive.sink.sort-by-dynamic-partition.enable")
                     .booleanType()
@@ -128,11 +134,21 @@ public class HiveOptions {
                                     + " custom: use policy class to create a commit policy."
                                     + " Support to configure multiple policies: 'metastore,success-file'.");
 
-    public static final ConfigOption<String> SINK_PARTITION_COMMIT_POLICY_CLASS =
-            FileSystemConnectorOptions.SINK_PARTITION_COMMIT_POLICY_CLASS;
+    public static final ConfigOption<Integer> TABLE_EXEC_HIVE_READ_STATISTICS_THREAD_NUM =
+            key("table.exec.hive.read-statistics.thread-num")
+                    .intType()
+                    .defaultValue(Runtime.getRuntime().availableProcessors())
+                    .withDescription(
+                            "The thread number to read input format statistics. It should be bigger than 0.");
 
-    public static final ConfigOption<String> SINK_PARTITION_COMMIT_SUCCESS_FILE_NAME =
-            FileSystemConnectorOptions.SINK_PARTITION_COMMIT_SUCCESS_FILE_NAME;
+    public static final ConfigOption<MemorySize> COMPACT_SMALL_FILES_AVG_SIZE =
+            key("compaction.small-files.avg-size")
+                    .memoryType()
+                    .defaultValue(MemorySize.ofMebiBytes(16))
+                    .withDescription(
+                            "When it's for writing Hive in batch mode and `auto-compaction` is configured to be true, if the average written file size is less this number,"
+                                    + " Flink will start to compact theses files to bigger files with target size which is configured by `compaction.file-size`."
+                                    + " If the `compaction.file-size` is not configured, it will use `sink.rolling-policy.file-size` as the target size.");
 
     public static final ConfigOption<Boolean> TABLE_EXEC_HIVE_SINK_STATISTIC_AUTO_GATHER_ENABLE =
             key("table.exec.hive.sink.statistic-auto-gather.enable")
@@ -150,7 +166,7 @@ public class HiveOptions {
                     key("table.exec.hive.sink.statistic-auto-gather.thread-num")
                             .intType()
                             .defaultValue(3)
-                            .withDeprecatedKeys(
+                            .withDescription(
                                     "The number of threads used to gather statistic during writing Hive Table"
                                             + " when the table is stored as ORC or Parquet format."
                                             + " The default value is 3.");
@@ -223,6 +239,13 @@ public class HiveOptions {
                     .defaultValue(Duration.ofMinutes(60))
                     .withDescription(
                             "The cache TTL (e.g. 10min) for the build table in lookup join.");
+
+    public static final ConfigOption<Boolean> TABLE_EXEC_HIVE_NATIVE_AGG_FUNCTION_ENABLED =
+            key("table.exec.hive.native-agg-function.enabled")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "Enabling native aggregate function for hive dialect to use hash-agg strategy that can improve the aggregation performance.");
 
     // --------------------------------------------------------------------------------------------
     // Enums

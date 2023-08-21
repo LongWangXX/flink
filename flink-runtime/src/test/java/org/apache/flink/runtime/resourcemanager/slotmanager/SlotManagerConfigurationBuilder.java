@@ -30,9 +30,9 @@ import java.time.Duration;
 /** Builder for {@link SlotManagerConfiguration}. */
 public class SlotManagerConfigurationBuilder {
     private Time taskManagerRequestTimeout;
-    private Time slotRequestTimeout;
     private Time taskManagerTimeout;
     private Duration requirementCheckDelay;
+    private Duration declareNeededResourceDelay;
     private boolean waitResultConsumedBeforeRelease;
     private WorkerResourceSpec defaultWorkerResourceSpec;
     private int numSlotsPerWorker;
@@ -40,12 +40,14 @@ public class SlotManagerConfigurationBuilder {
     private CPUResource maxTotalCpu;
     private MemorySize maxTotalMem;
     private int redundantTaskManagerNum;
+    private boolean evenlySpreadOutSlots;
 
     private SlotManagerConfigurationBuilder() {
         this.taskManagerRequestTimeout = TestingUtils.infiniteTime();
-        this.slotRequestTimeout = TestingUtils.infiniteTime();
         this.taskManagerTimeout = TestingUtils.infiniteTime();
         this.requirementCheckDelay = ResourceManagerOptions.REQUIREMENTS_CHECK_DELAY.defaultValue();
+        this.declareNeededResourceDelay =
+                ResourceManagerOptions.DECLARE_NEEDED_RESOURCE_DELAY.defaultValue();
         this.waitResultConsumedBeforeRelease = true;
         this.defaultWorkerResourceSpec = WorkerResourceSpec.ZERO;
         this.numSlotsPerWorker = 1;
@@ -54,6 +56,7 @@ public class SlotManagerConfigurationBuilder {
         this.maxTotalMem = MemorySize.MAX_VALUE;
         this.redundantTaskManagerNum =
                 ResourceManagerOptions.REDUNDANT_TASK_MANAGER_NUM.defaultValue();
+        this.evenlySpreadOutSlots = false;
     }
 
     public static SlotManagerConfigurationBuilder newBuilder() {
@@ -66,11 +69,6 @@ public class SlotManagerConfigurationBuilder {
         return this;
     }
 
-    public SlotManagerConfigurationBuilder setSlotRequestTimeout(Time slotRequestTimeout) {
-        this.slotRequestTimeout = slotRequestTimeout;
-        return this;
-    }
-
     public SlotManagerConfigurationBuilder setTaskManagerTimeout(Time taskManagerTimeout) {
         this.taskManagerTimeout = taskManagerTimeout;
         return this;
@@ -79,6 +77,12 @@ public class SlotManagerConfigurationBuilder {
     public SlotManagerConfigurationBuilder setRequirementCheckDelay(
             Duration requirementCheckDelay) {
         this.requirementCheckDelay = requirementCheckDelay;
+        return this;
+    }
+
+    public SlotManagerConfigurationBuilder setDeclareNeededResourceDelay(
+            Duration declareNeededResourceDelay) {
+        this.declareNeededResourceDelay = declareNeededResourceDelay;
         return this;
     }
 
@@ -119,14 +123,22 @@ public class SlotManagerConfigurationBuilder {
         return this;
     }
 
+    public SlotManagerConfigurationBuilder setEvenlySpreadOutSlots(boolean evenlySpreadOutSlots) {
+        this.evenlySpreadOutSlots = evenlySpreadOutSlots;
+        return this;
+    }
+
     public SlotManagerConfiguration build() {
         return new SlotManagerConfiguration(
                 taskManagerRequestTimeout,
-                slotRequestTimeout,
                 taskManagerTimeout,
                 requirementCheckDelay,
+                declareNeededResourceDelay,
                 waitResultConsumedBeforeRelease,
-                AnyMatchingSlotMatchingStrategy.INSTANCE,
+                evenlySpreadOutSlots
+                        ? LeastUtilizationSlotMatchingStrategy.INSTANCE
+                        : AnyMatchingSlotMatchingStrategy.INSTANCE,
+                evenlySpreadOutSlots,
                 defaultWorkerResourceSpec,
                 numSlotsPerWorker,
                 maxSlotNum,

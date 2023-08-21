@@ -25,8 +25,6 @@ import org.apache.flink.api.common.typeutils.TypeSerializerSchemaCompatibility;
 import org.apache.flink.api.common.typeutils.TypeSerializerUpgradeTestBase;
 
 import org.hamcrest.Matcher;
-import org.junit.runner.RunWith;
-import org.junit.runners.Parameterized;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -35,29 +33,20 @@ import java.util.List;
 import static org.hamcrest.Matchers.is;
 
 /** A {@link TypeSerializerUpgradeTestBase} for {@link ListSerializerSnapshot}. */
-@RunWith(Parameterized.class)
-public class ListSerializerUpgradeTest
-        extends TypeSerializerUpgradeTestBase<List<String>, List<String>> {
+class ListSerializerUpgradeTest extends TypeSerializerUpgradeTestBase<List<String>, List<String>> {
 
     private static final String SPEC_NAME = "list-serializer";
 
-    public ListSerializerUpgradeTest(
-            TestSpecification<List<String>, List<String>> testSpecification) {
-        super(testSpecification);
-    }
-
-    @Parameterized.Parameters(name = "Test Specification = {0}")
-    public static Collection<TestSpecification<?, ?>> testSpecifications() throws Exception {
+    public Collection<TestSpecification<?, ?>> createTestSpecifications(FlinkVersion flinkVersion)
+            throws Exception {
 
         ArrayList<TestSpecification<?, ?>> testSpecifications = new ArrayList<>();
-        for (FlinkVersion flinkVersion : MIGRATION_VERSIONS) {
-            testSpecifications.add(
-                    new TestSpecification<>(
-                            SPEC_NAME,
-                            flinkVersion,
-                            ListSerializerSetup.class,
-                            ListSerializerVerifier.class));
-        }
+        testSpecifications.add(
+                new TestSpecification<>(
+                        SPEC_NAME,
+                        flinkVersion,
+                        ListSerializerSetup.class,
+                        ListSerializerVerifier.class));
 
         return testSpecifications;
     }

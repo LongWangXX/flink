@@ -25,6 +25,7 @@ import org.apache.flink.table.api.TableException;
 import org.apache.flink.table.api.ValidationException;
 import org.apache.flink.table.catalog.exceptions.DatabaseNotExistException;
 import org.apache.flink.table.catalog.exceptions.FunctionNotExistException;
+import org.apache.flink.table.catalog.exceptions.ProcedureNotExistException;
 import org.apache.flink.table.delegation.PlannerTypeInferenceUtil;
 import org.apache.flink.table.functions.AggregateFunction;
 import org.apache.flink.table.functions.AggregateFunctionDefinition;
@@ -40,9 +41,11 @@ import org.apache.flink.table.functions.TableFunctionDefinition;
 import org.apache.flink.table.functions.UserDefinedFunction;
 import org.apache.flink.table.functions.UserDefinedFunctionHelper;
 import org.apache.flink.table.module.ModuleManager;
+import org.apache.flink.table.procedures.Procedure;
 import org.apache.flink.table.resource.ResourceManager;
 import org.apache.flink.table.resource.ResourceUri;
 import org.apache.flink.util.Preconditions;
+import org.apache.flink.util.StringUtils;
 
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -109,6 +112,15 @@ public final class FunctionCatalog {
             boolean ignoreIfExists) {
         registerTemporarySystemFunction(
                 name, new CatalogFunctionImpl(fullyQualifiedName, language), ignoreIfExists);
+    }
+
+    /** Registers a temporary system function from resource uris. */
+    public void registerTemporarySystemFunction(
+            String name, String className, List<ResourceUri> resourceUris) {
+        registerTemporarySystemFunction(
+                name,
+                new CatalogFunctionImpl(className, FunctionLanguage.JAVA, resourceUris),
+                false);
     }
 
     /** Drops a temporary system function. Returns true if a function was dropped. */
@@ -184,8 +196,8 @@ public final class FunctionCatalog {
             Class<? extends UserDefinedFunction> functionClass,
             boolean ignoreIfExists) {
         final ObjectIdentifier identifier = catalogManager.qualifyIdentifier(unresolvedIdentifier);
-        final ObjectIdentifier normalizedIdentifier =
-                FunctionIdentifier.normalizeObjectIdentifier(identifier);
+        final CatalogFunction catalogFunction =
+                new CatalogFunctionImpl(functionClass.getName(), FunctionLanguage.JAVA);
 
         try {
             UserDefinedFunctionHelper.validateClass(functionClass);
@@ -197,45 +209,20 @@ public final class FunctionCatalog {
                     t);
         }
 
-        final Catalog catalog =
-                catalogManager
-                        .getCatalog(normalizedIdentifier.getCatalogName())
-                        .orElseThrow(IllegalStateException::new);
-        final ObjectPath path = identifier.toObjectPath();
+        registerCatalogFunction(identifier, catalogFunction, ignoreIfExists);
+    }
 
-        // we force users to deal with temporary catalog functions first
-        if (tempCatalogFunctions.containsKey(normalizedIdentifier)) {
-            if (ignoreIfExists) {
-                return;
-            }
-            throw new ValidationException(
-                    String.format(
-                            "Could not register catalog function. A temporary function '%s' does already exist. "
-                                    + "Please drop the temporary function first.",
-                            identifier.asSummaryString()));
-        }
+    public void registerCatalogFunction(
+            UnresolvedIdentifier unresolvedIdentifier,
+            String className,
+            List<ResourceUri> resourceUris,
+            boolean ignoreIfExists) {
 
-        if (catalog.functionExists(path)) {
-            if (ignoreIfExists) {
-                return;
-            }
-            throw new ValidationException(
-                    String.format(
-                            "Could not register catalog function. A function '%s' does already exist.",
-                            identifier.asSummaryString()));
-        }
-
+        final ObjectIdentifier identifier = catalogManager.qualifyIdentifier(unresolvedIdentifier);
         final CatalogFunction catalogFunction =
-                new CatalogFunctionImpl(functionClass.getName(), FunctionLanguage.JAVA);
-        try {
-            catalog.createFunction(path, catalogFunction, ignoreIfExists);
-        } catch (Throwable t) {
-            throw new TableException(
-                    String.format(
-                            "Could not register catalog function '%s'.",
-                            identifier.asSummaryString()),
-                    t);
-        }
+                new CatalogFunctionImpl(className, FunctionLanguage.JAVA, resourceUris);
+
+        registerCatalogFunction(identifier, catalogFunction, ignoreIfExists);
     }
 
     /**
@@ -340,11 +327,17 @@ public final class FunctionCatalog {
      * functions and catalog functions in the current catalog and current database.
      */
     public String[] getFunctions() {
+        return getFunctions(
+                catalogManager.getCurrentCatalog(), catalogManager.getCurrentDatabase());
+    }
+
+    /**
+     * Get names of all functions, including temp system functions, system functions, temp catalog
+     * functions and catalog functions with specific catalog and database.
+     */
+    public String[] getFunctions(String catalogName, String databaseName) {
         Set<String> result =
-                getUserDefinedFunctions(
-                                catalogManager.getCurrentCatalog(),
-                                catalogManager.getCurrentDatabase())
-                        .stream()
+                getUserDefinedFunctions(catalogName, databaseName).stream()
                         .map(FunctionIdentifier::getFunctionName)
                         .collect(Collectors.toSet());
 
@@ -403,6 +396,23 @@ public final class FunctionCatalog {
                 return plannerTypeInferenceUtil;
             }
         };
+    }
+
+    public Optional<ContextResolvedProcedure> lookupProcedure(UnresolvedIdentifier identifier) {
+        ObjectIdentifier procedureIdentifier = catalogManager.qualifyIdentifier(identifier);
+        Optional<Catalog> catalog = catalogManager.getCatalog(procedureIdentifier.getCatalogName());
+        if (catalog.isPresent()) {
+            Procedure procedure;
+            try {
+                procedure = catalog.get().getProcedure(procedureIdentifier.toObjectPath());
+            } catch (ProcedureNotExistException e) {
+                return Optional.empty();
+            }
+            return Optional.of(
+                    new ContextResolvedProcedure(
+                            FunctionIdentifier.of(procedureIdentifier), procedure));
+        }
+        return Optional.empty();
     }
 
     public Optional<ContextResolvedFunction> lookupFunction(UnresolvedIdentifier identifier) {
@@ -570,6 +580,19 @@ public final class FunctionCatalog {
     }
 
     // --------------------------------------------------------------------------------------------
+    private Optional<ContextResolvedFunction> resolvePreciseFunctionReference(String funcName) {
+        if (StringUtils.isNullOrWhitespaceOnly(catalogManager.getCurrentCatalog())
+                || StringUtils.isNullOrWhitespaceOnly(catalogManager.getCurrentDatabase())) {
+            return Optional.empty();
+        } else {
+            ObjectIdentifier oi =
+                    ObjectIdentifier.of(
+                            catalogManager.getCurrentCatalog(),
+                            catalogManager.getCurrentDatabase(),
+                            funcName);
+            return resolvePreciseFunctionReference(oi);
+        }
+    }
 
     private Optional<ContextResolvedFunction> resolvePreciseFunctionReference(ObjectIdentifier oi) {
         // resolve order:
@@ -638,11 +661,6 @@ public final class FunctionCatalog {
 
         Optional<FunctionDefinition> candidate =
                 moduleManager.getFunctionDefinition(normalizedName);
-        ObjectIdentifier oi =
-                ObjectIdentifier.of(
-                        catalogManager.getCurrentCatalog(),
-                        catalogManager.getCurrentDatabase(),
-                        funcName);
 
         return candidate
                 .map(
@@ -650,7 +668,7 @@ public final class FunctionCatalog {
                                 Optional.of(
                                         ContextResolvedFunction.permanent(
                                                 FunctionIdentifier.of(funcName), fd)))
-                .orElseGet(() -> resolvePreciseFunctionReference(oi));
+                .orElseGet(() -> resolvePreciseFunctionReference(funcName));
     }
 
     @SuppressWarnings("unchecked")
@@ -700,7 +718,7 @@ public final class FunctionCatalog {
                 function);
     }
 
-    private void registerFunctionJarResources(String functionName, List<ResourceUri> resourceUris) {
+    public void registerFunctionJarResources(String functionName, List<ResourceUri> resourceUris) {
         try {
             if (!resourceUris.isEmpty()) {
                 resourceManager.registerJarResources(resourceUris);
@@ -711,6 +729,56 @@ public final class FunctionCatalog {
                             "Failed to register jar resource '%s' of function '%s'.",
                             resourceUris, functionName),
                     e);
+        }
+    }
+
+    private void registerCatalogFunction(
+            ObjectIdentifier identifier, CatalogFunction catalogFunction, boolean ignoreIfExists) {
+        final ObjectIdentifier normalizedIdentifier =
+                FunctionIdentifier.normalizeObjectIdentifier(identifier);
+
+        final Catalog catalog =
+                catalogManager
+                        .getCatalog(normalizedIdentifier.getCatalogName())
+                        .orElseThrow(
+                                () ->
+                                        new ValidationException(
+                                                String.format(
+                                                        "Catalog %s not exists.",
+                                                        normalizedIdentifier.getCatalogName())));
+
+        final ObjectPath path = identifier.toObjectPath();
+
+        // we force users to deal with temporary catalog functions first
+        if (tempCatalogFunctions.containsKey(normalizedIdentifier)) {
+            if (ignoreIfExists) {
+                return;
+            }
+            throw new ValidationException(
+                    String.format(
+                            "Could not register catalog function. A temporary function '%s' does already exist. "
+                                    + "Please drop the temporary function first.",
+                            identifier.asSummaryString()));
+        }
+
+        if (catalog.functionExists(path)) {
+            if (ignoreIfExists) {
+                return;
+            }
+            throw new ValidationException(
+                    String.format(
+                            "Could not register catalog function. A function '%s' does already exist.",
+                            identifier.asSummaryString()));
+        }
+
+        try {
+            catalog.createFunction(path, catalogFunction, ignoreIfExists);
+        } catch (Throwable t) {
+            throw new TableException(
+                    String.format(
+                            "Could not register catalog function '%s'.",
+                            identifier.asSummaryString()),
+                    t);
         }
     }
 

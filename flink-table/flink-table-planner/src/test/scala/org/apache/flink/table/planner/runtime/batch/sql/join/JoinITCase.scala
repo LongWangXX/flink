@@ -24,12 +24,9 @@ import org.apache.flink.api.common.typeutils.TypeComparator
 import org.apache.flink.api.dag.Transformation
 import org.apache.flink.api.java.typeutils.{GenericTypeInfo, RowTypeInfo}
 import org.apache.flink.streaming.api.transformations.{LegacySinkTransformation, OneInputTransformation, TwoInputTransformation}
-import org.apache.flink.table.api.config.OptimizerConfigOptions
 import org.apache.flink.table.api.internal.{StatementSetImpl, TableEnvironmentInternal}
-import org.apache.flink.table.plan.stats.TableStats
 import org.apache.flink.table.planner.delegation.PlannerBase
 import org.apache.flink.table.planner.expressions.utils.FuncWithOpen
-import org.apache.flink.table.planner.plan.stats.FlinkStatistic
 import org.apache.flink.table.planner.runtime.batch.sql.join.JoinType.{BroadcastHashJoin, HashJoin, JoinType, NestedLoopJoin, SortMergeJoin}
 import org.apache.flink.table.planner.runtime.utils.BatchTestBase
 import org.apache.flink.table.planner.runtime.utils.BatchTestBase.row
@@ -37,20 +34,22 @@ import org.apache.flink.table.planner.runtime.utils.TestData._
 import org.apache.flink.table.planner.sinks.CollectRowTableSink
 import org.apache.flink.table.planner.utils.TestingTableEnvironment
 import org.apache.flink.table.runtime.operators.CodeGenOperatorFactory
+import org.apache.flink.testutils.junit.extensions.parameterized.{Parameter, ParameterizedTestExtension, Parameters}
 import org.apache.flink.types.Row
 
-import org.junit.{Assert, Before, Test}
-import org.junit.runner.RunWith
-import org.junit.runners.Parameterized
+import org.assertj.core.api.Assertions.assertThat
+import org.junit.jupiter.api.{BeforeEach, TestTemplate}
+import org.junit.jupiter.api.extension.ExtendWith
 
 import java.util
 
 import scala.collection.JavaConversions._
 
-@RunWith(classOf[Parameterized])
-class JoinITCase(expectedJoinType: JoinType) extends BatchTestBase {
+@ExtendWith(Array(classOf[ParameterizedTestExtension]))
+class JoinITCase extends BatchTestBase {
 
-  @Before
+  @Parameter var expectedJoinType: JoinType = _
+  @BeforeEach
   override def before(): Unit = {
     super.before()
     registerCollection("SmallTable3", smallData3, type3, "a, b, c", nullablesOfSmallData3)
@@ -64,7 +63,7 @@ class JoinITCase(expectedJoinType: JoinType) extends BatchTestBase {
     JoinITCaseHelper.disableOtherJoinOpForJoin(tEnv, expectedJoinType)
   }
 
-  @Test
+  @TestTemplate
   def testJoin(): Unit = {
     checkResult(
       "SELECT c, g FROM SmallTable3, Table5 WHERE b = e",
@@ -75,7 +74,7 @@ class JoinITCase(expectedJoinType: JoinType) extends BatchTestBase {
       ))
   }
 
-  @Test
+  @TestTemplate
   def testLongJoinWithBigRange(): Unit = {
     registerCollection(
       "inputT1",
@@ -99,7 +98,7 @@ class JoinITCase(expectedJoinType: JoinType) extends BatchTestBase {
     )
   }
 
-  @Test
+  @TestTemplate
   def testLongHashJoinGenerator(): Unit = {
     if (expectedJoinType == HashJoin) {
       val sink = (new CollectRowTableSink).configure(Array("c"), Array(Types.STRING))
@@ -133,11 +132,11 @@ class JoinITCase(expectedJoinType: JoinType) extends BatchTestBase {
             case _ =>
           }
       }
-      Assert.assertTrue(haveTwoOp)
+      assertThat(haveTwoOp).isTrue
     }
   }
 
-  @Test
+  @TestTemplate
   def testOneSideSmjFieldError(): Unit = {
     if (expectedJoinType == SortMergeJoin) {
       registerCollection(
@@ -177,7 +176,7 @@ class JoinITCase(expectedJoinType: JoinType) extends BatchTestBase {
     }
   }
 
-  @Test
+  @TestTemplate
   def testJoinSameFieldEqual(): Unit = {
     checkResult(
       "SELECT c, g FROM SmallTable3, Table5 WHERE b = e and b = h",
@@ -188,7 +187,7 @@ class JoinITCase(expectedJoinType: JoinType) extends BatchTestBase {
       ))
   }
 
-  @Test
+  @TestTemplate
   def testJoinOn(): Unit = {
     checkResult(
       "SELECT c, g FROM SmallTable3 JOIN Table5 ON b = e",
@@ -199,12 +198,12 @@ class JoinITCase(expectedJoinType: JoinType) extends BatchTestBase {
       ))
   }
 
-  @Test
+  @TestTemplate
   def testJoinNoMatches(): Unit = {
     checkResult("SELECT c, g FROM SmallTable3, Table5 where c = g", Seq())
   }
 
-  @Test
+  @TestTemplate
   def testJoinNoMatchesWithSubquery(): Unit = {
     checkResult(
       "SELECT c, g FROM " +
@@ -212,7 +211,7 @@ class JoinITCase(expectedJoinType: JoinType) extends BatchTestBase {
       Seq())
   }
 
-  @Test
+  @TestTemplate
   def testJoinWithFilter(): Unit = {
     checkResult(
       "SELECT c, g FROM SmallTable3, Table5 WHERE b = e AND b < 2",
@@ -221,7 +220,7 @@ class JoinITCase(expectedJoinType: JoinType) extends BatchTestBase {
       ))
   }
 
-  @Test
+  @TestTemplate
   def testJoinWithJoinFilter(): Unit = {
     checkResult(
       "SELECT c, g FROM Table3, Table5 WHERE b = e AND a < 6",
@@ -235,7 +234,7 @@ class JoinITCase(expectedJoinType: JoinType) extends BatchTestBase {
     )
   }
 
-  @Test
+  @TestTemplate
   def testInnerJoinWithBooleanFilterCondition(): Unit = {
     val data1: Seq[Row] =
       Seq(row(1, 1L, "Hi", true), row(2, 2L, "Hello", false), row(3, 2L, "Hello world", true))
@@ -254,7 +253,7 @@ class JoinITCase(expectedJoinType: JoinType) extends BatchTestBase {
     )
   }
 
-  @Test
+  @TestTemplate
   def testInnerJoinWithNonEquiJoinPredicate(): Unit = {
     checkResult(
       "SELECT c, g FROM Table3, Table5 WHERE b = e AND a < 6 AND h < b",
@@ -265,7 +264,7 @@ class JoinITCase(expectedJoinType: JoinType) extends BatchTestBase {
     )
   }
 
-  @Test
+  @TestTemplate
   def testJoinWithMultipleKeys(): Unit = {
     checkResult(
       "SELECT c, g FROM NullTable3, NullTable5 WHERE a = d AND b = h",
@@ -280,7 +279,7 @@ class JoinITCase(expectedJoinType: JoinType) extends BatchTestBase {
     )
   }
 
-  @Test
+  @TestTemplate
   def testJoinWithAlias(): Unit = {
     registerCollection("AliasTable5", data5, type5, "d, e, f, g, c")
     checkResult(
@@ -297,7 +296,7 @@ class JoinITCase(expectedJoinType: JoinType) extends BatchTestBase {
     )
   }
 
-  @Test
+  @TestTemplate
   def testLeftJoinWithMultipleKeys(): Unit = {
     checkResult(
       "SELECT c, g FROM NullTable3 LEFT JOIN NullTable5 ON a = d and b = h",
@@ -331,7 +330,7 @@ class JoinITCase(expectedJoinType: JoinType) extends BatchTestBase {
     )
   }
 
-  @Test
+  @TestTemplate
   def testLeftJoinWithNonEquiJoinPred(): Unit = {
     checkResult(
       "SELECT c, g FROM NullTable3 LEFT JOIN NullTable5 ON a = d and b <= h",
@@ -366,7 +365,7 @@ class JoinITCase(expectedJoinType: JoinType) extends BatchTestBase {
     )
   }
 
-  @Test
+  @TestTemplate
   def testLeftJoinWithLeftLocalPred(): Unit = {
     checkResult(
       "SELECT c, g FROM NullTable3 LEFT JOIN NullTable5 ON a = d and b = 2",
@@ -401,7 +400,7 @@ class JoinITCase(expectedJoinType: JoinType) extends BatchTestBase {
     )
   }
 
-  @Test
+  @TestTemplate
   def testRightJoinWithMultipleKeys(): Unit = {
     checkResult(
       "SELECT c, g FROM NullTable3 RIGHT JOIN NullTable5 ON a = d and b = h",
@@ -427,7 +426,7 @@ class JoinITCase(expectedJoinType: JoinType) extends BatchTestBase {
     )
   }
 
-  @Test
+  @TestTemplate
   def testRightJoinWithNonEquiJoinPred(): Unit = {
     checkResult(
       "SELECT c, g FROM NullTable5 RIGHT JOIN NullTable3 ON a = d and b <= h",
@@ -462,7 +461,7 @@ class JoinITCase(expectedJoinType: JoinType) extends BatchTestBase {
     )
   }
 
-  @Test
+  @TestTemplate
   def testRightJoinWithLeftLocalPred(): Unit = {
     checkResult(
       "SELECT c, g FROM NullTable5 RIGHT JOIN NullTable3 ON a = d and b = 2",
@@ -497,7 +496,7 @@ class JoinITCase(expectedJoinType: JoinType) extends BatchTestBase {
     )
   }
 
-  @Test
+  @TestTemplate
   def testFullOuterJoinWithMultipleKeys(): Unit = {
     if (expectedJoinType != BroadcastHashJoin && expectedJoinType != NestedLoopJoin) {
       checkResult(
@@ -544,7 +543,7 @@ class JoinITCase(expectedJoinType: JoinType) extends BatchTestBase {
     }
   }
 
-  @Test
+  @TestTemplate
   def testFullJoinWithNonEquiJoinPred(): Unit = {
     if (expectedJoinType != BroadcastHashJoin && expectedJoinType != NestedLoopJoin) {
       checkResult(
@@ -596,7 +595,7 @@ class JoinITCase(expectedJoinType: JoinType) extends BatchTestBase {
     }
   }
 
-  @Test
+  @TestTemplate
   def testFullJoinWithLeftLocalPred(): Unit = {
     if (expectedJoinType != BroadcastHashJoin && expectedJoinType != NestedLoopJoin) {
       checkResult(
@@ -649,7 +648,7 @@ class JoinITCase(expectedJoinType: JoinType) extends BatchTestBase {
     }
   }
 
-  @Test
+  @TestTemplate
   def testFullOuterJoin(): Unit = {
     if (expectedJoinType != BroadcastHashJoin && expectedJoinType != NestedLoopJoin) {
       checkResult(
@@ -676,7 +675,7 @@ class JoinITCase(expectedJoinType: JoinType) extends BatchTestBase {
     }
   }
 
-  @Test
+  @TestTemplate
   def testFullOuterJoinWithoutEqualCond(): Unit = {
     if (expectedJoinType == NestedLoopJoin) {
       checkResult(
@@ -692,7 +691,7 @@ class JoinITCase(expectedJoinType: JoinType) extends BatchTestBase {
     }
   }
 
-  @Test
+  @TestTemplate
   def testSingleRowFullOuterJoinWithoutEqualCond(): Unit = {
     if (expectedJoinType == NestedLoopJoin) {
       checkResult(
@@ -707,7 +706,7 @@ class JoinITCase(expectedJoinType: JoinType) extends BatchTestBase {
     }
   }
 
-  @Test
+  @TestTemplate
   def testSingleRowFullOuterJoinWithoutEqualCondNoMatch(): Unit = {
     if (expectedJoinType == NestedLoopJoin) {
       checkResult(
@@ -723,7 +722,7 @@ class JoinITCase(expectedJoinType: JoinType) extends BatchTestBase {
     }
   }
 
-  @Test
+  @TestTemplate
   def testLeftOuterJoin(): Unit = {
     checkResult(
       "SELECT c, g FROM Table5 LEFT OUTER JOIN SmallTable3 ON b = e",
@@ -748,7 +747,7 @@ class JoinITCase(expectedJoinType: JoinType) extends BatchTestBase {
     )
   }
 
-  @Test
+  @TestTemplate
   def testRightOuterJoin(): Unit = {
     checkResult(
       "SELECT c, g FROM SmallTable3 RIGHT OUTER JOIN Table5 ON b = e",
@@ -773,227 +772,19 @@ class JoinITCase(expectedJoinType: JoinType) extends BatchTestBase {
     )
   }
 
-  @Test
-  def testLeftOuterJoinReorder(): Unit = {
-    // This test is used to test the result after join to multi join and join reorder.
-    tEnv.getConfig.set(
-      OptimizerConfigOptions.TABLE_OPTIMIZER_JOIN_REORDER_ENABLED,
-      Boolean.box(true))
-    // Register table with stats to support join reorder,
-    // join order LJ(LJ(LJ(T5, T3), T2), T1) will reorder to RJ(T1, LJ(T2, LJ(T5, T3)))
-    registerCollection(
-      "T5",
-      data5,
-      type5,
-      "d, e, f, g, h",
-      nullablesOfData5,
-      new FlinkStatistic(new TableStats(1000L)))
-    registerCollection(
-      "T3",
-      smallData3,
-      type3,
-      "a, b, c",
-      nullablesOfSmallData3,
-      new FlinkStatistic(new TableStats(100L)))
-    registerCollection(
-      "T2",
-      data2,
-      type2,
-      "d, e, f, g, h",
-      nullablesOfData2,
-      new FlinkStatistic(new TableStats(10L)))
-    registerCollection(
-      "T1",
-      data2,
-      type2,
-      "d, e, f, g, h",
-      nullablesOfData2,
-      new FlinkStatistic(new TableStats(100000L)))
-
-    checkResult(
-      """
-        |SELECT T5.g, T3b.c, T2b.g FROM T5 LEFT OUTER JOIN 
-        |(SELECT * FROM T3 WHERE a > 0 ) T3b ON T3b.b = T5.e LEFT OUTER JOIN 
-        |(SELECT * FROM T2 WHERE d > 0) T2b ON T3b.b = T2b.e LEFT OUTER JOIN
-        |(SELECT * FROM T1) T1b ON T3b.b = T1b.e
-        |""".stripMargin,
-      Seq(
-        row("Hallo", "Hi", "Hallo"),
-        row("Hallo Welt", "Hello world", "Hallo Welt"),
-        row("Hallo Welt", "Hello", "Hallo Welt"),
-        row("Hallo Welt wie gehts?", null, null),
-        row("Hallo Welt wie", null, null),
-        row("ABC", null, null),
-        row("BCD", null, null),
-        row("CDE", null, null),
-        row("DEF", null, null),
-        row("EFG", null, null),
-        row("FGH", null, null),
-        row("GHI", null, null),
-        row("HIJ", null, null),
-        row("IJK", null, null),
-        row("JKL", null, null),
-        row("KLM", null, null)
-      )
-    )
-  }
-
-  @Test
-  def testRightOuterJoinReorder(): Unit = {
-    // This test is used to test the result after join to multi join and join reorder.
-    tEnv.getConfig.set(
-      OptimizerConfigOptions.TABLE_OPTIMIZER_JOIN_REORDER_ENABLED,
-      Boolean.box(true))
-    // Register table with stats to support join reorder,
-    // join order RJ(J(RJ(t5, t3), T2), T1) will reorder to LJ(RJ(T5, J(T3, T2)), T1)
-    registerCollection(
-      "T5",
-      data5,
-      type5,
-      "d, e, f, g, h",
-      nullablesOfData5,
-      new FlinkStatistic(new TableStats(1000L)))
-    registerCollection(
-      "T3",
-      smallData3,
-      type3,
-      "a, b, c",
-      nullablesOfSmallData3,
-      new FlinkStatistic(new TableStats(100L)))
-    registerCollection(
-      "T2",
-      data2,
-      type2,
-      "d, e, f, g, h",
-      nullablesOfData2,
-      new FlinkStatistic(new TableStats(10L)))
-    registerCollection(
-      "T1",
-      data2,
-      type2,
-      "d, e, f, g, h",
-      nullablesOfData2,
-      new FlinkStatistic(new TableStats(100000L)))
-
-    checkResult(
-      """
-        |SELECT T5.g, T3b.c, T2b.g FROM T5 RIGHT OUTER JOIN 
-        |(SELECT * FROM T3 WHERE T3.a > 0) T3b ON T3b.b = T5.e JOIN
-        |(SELECT * FROM T2 WHERE T2.d > 0) T2b ON T3b.b = T2b.e RIGHT OUTER JOIN
-        |(SELECT * FROM T1) T1b ON T3b.b = T1b.e
-        |""".stripMargin,
-      Seq(
-        row("Hallo Welt", "Hello world", "Hallo Welt"),
-        row("Hallo Welt", "Hello", "Hallo Welt"),
-        row("Hallo", "Hi", "Hallo"),
-        row(null, null, null),
-        row(null, null, null),
-        row(null, null, null),
-        row(null, null, null),
-        row(null, null, null),
-        row(null, null, null),
-        row(null, null, null),
-        row(null, null, null),
-        row(null, null, null),
-        row(null, null, null),
-        row(null, null, null),
-        row(null, null, null),
-        row(null, null, null)
-      )
-    )
-  }
-
-  @Test
-  def testRightOuterJoinRightOuterJoinCannotReorder: Unit = {
-    // This test is used to test the result after join to multi join and join reorder.
-    tEnv.getConfig.set(
-      OptimizerConfigOptions.TABLE_OPTIMIZER_JOIN_REORDER_ENABLED,
-      Boolean.box(true))
-    registerCollection("Table2", data2, type2, "d, e, f, g, h", nullablesOfData2)
-    // This query will be set into one multi jon set by FlinkJoinToMultiJoinRule,
-    // but it can not reorder, because the sub right outer join query join condition is from generate-null side.
-    checkResult(
-      """
-        |SELECT Table5.g, c, t.g FROM Table5 RIGHT OUTER JOIN
-        |(SELECT * FROM SmallTable3 RIGHT OUTER JOIN Table2 ON b = Table2.e) t ON t.e = Table5.e
-        |""".stripMargin,
-      Seq(
-        row("ABC", null, "ABC"),
-        row("BCD", null, "BCD"),
-        row("CDE", null, "CDE"),
-        row("DEF", null, "DEF"),
-        row("EFG", null, "EFG"),
-        row("FGH", null, "FGH"),
-        row("GHI", null, "GHI"),
-        row("HIJ", null, "HIJ"),
-        row("Hallo Welt wie gehts?", null, "Hallo Welt wie gehts?"),
-        row("Hallo Welt wie", null, "Hallo Welt wie"),
-        row("Hallo Welt", "Hello", "Hallo Welt"),
-        row("Hallo Welt", "Hello world", "Hallo Welt"),
-        row("Hallo", "Hi", "Hallo"),
-        row("IJK", null, "IJK"),
-        row("JKL", null, "JKL"),
-        row("KLM", null, "KLM")
-      )
-    )
-  }
-
-  @Test
-  def testInnerJoinReorder(): Unit = {
-    // This test is used to test the result after join to multi join and join reorder.
-    tEnv.getConfig.set(
-      OptimizerConfigOptions.TABLE_OPTIMIZER_JOIN_REORDER_ENABLED,
-      Boolean.box(true))
-    // Register table with stats to support join reorder,
-    // join order J(J(t5, t3), T2) will reorder to J(T5, J(T3, T2))
-    registerCollection(
-      "T5",
-      data5,
-      type5,
-      "d, e, f, g, h",
-      nullablesOfData5,
-      new FlinkStatistic(new TableStats(1000L)))
-    registerCollection(
-      "T3",
-      smallData3,
-      type3,
-      "a, b, c",
-      nullablesOfSmallData3,
-      new FlinkStatistic(new TableStats(100L)))
-    registerCollection(
-      "T2",
-      data2,
-      type2,
-      "d, e, f, g, h",
-      nullablesOfData2,
-      new FlinkStatistic(new TableStats(10L)))
-
-    checkResult(
-      """
-        |SELECT T5.g, c, T2.g FROM T5 JOIN T3 ON b = T5.e
-        |JOIN T2 ON b = T2.e WHERE T2.d > 0 AND T5.d > 0
-        |""".stripMargin,
-      Seq(
-        row("Hallo", "Hi", "Hallo"),
-        row("Hallo Welt", "Hello", "Hallo Welt"),
-        row("Hallo Welt", "Hello world", "Hallo Welt")
-      )
-    )
-  }
-
-  @Test
+  @TestTemplate
   def testJoinWithAggregation(): Unit = {
     checkResult("SELECT COUNT(g), COUNT(b) FROM SmallTable3, Table5 WHERE a = d", Seq(row(6L, 6L)))
   }
 
-  @Test
+  @TestTemplate
   def testJoinConditionNeedSimplify(): Unit = {
     checkResult(
       "SELECT A.d FROM Table5 A JOIN SmallTable3 B ON (A.d=B.a and B.a>2) or (A.d=B.a and B.b=1)",
       Seq(row(1), row(3), row(3), row(3)))
   }
 
-  @Test
+  @TestTemplate
   def testJoinConditionDerivedFromCorrelatedSubQueryNeedSimplify(): Unit = {
     checkResult(
       "SELECT B.a FROM SmallTable3 B WHERE b = (" +
@@ -1001,19 +792,19 @@ class JoinITCase(expectedJoinType: JoinType) extends BatchTestBase {
       Seq(row(1), row(2)))
   }
 
-  @Test
+  @TestTemplate
   def testSimple(): Unit = {
     checkResult(
       "select a, b from l where a in (select c from r where c > 2)",
       Seq(row(3, 3.0), row(6, null)))
   }
 
-  @Test
+  @TestTemplate
   def testSelect(): Unit = {
     checkResult("select t.a from (select 1 as a)t", Seq(row(1)))
   }
 
-  @Test
+  @TestTemplate
   def testCorrelated(): Unit = {
     expectedJoinType match {
       case NestedLoopJoin =>
@@ -1026,7 +817,7 @@ class JoinITCase(expectedJoinType: JoinType) extends BatchTestBase {
     }
   }
 
-  @Test
+  @TestTemplate
   def testCorrelatedExist(): Unit = {
     checkResult(
       "select * from l where exists (select * from r where l.a = r.c)",
@@ -1037,7 +828,7 @@ class JoinITCase(expectedJoinType: JoinType) extends BatchTestBase {
       Seq(row(2, 1.0), row(2, 1.0)))
   }
 
-  @Test
+  @TestTemplate
   def testCorrelatedExist2(): Unit = {
     val data: Seq[Row] =
       Seq(row(0L), row(123456L), row(-123456L), row(2147483647L), row(-2147483647L))
@@ -1048,7 +839,7 @@ class JoinITCase(expectedJoinType: JoinType) extends BatchTestBase {
       Seq())
   }
 
-  @Test
+  @TestTemplate
   def testCorrelatedNotExist(): Unit = {
     checkResult(
       "select * from l where not exists (select * from r where l.a = r.c and l.b <> r.d)",
@@ -1056,7 +847,7 @@ class JoinITCase(expectedJoinType: JoinType) extends BatchTestBase {
     )
   }
 
-  @Test
+  @TestTemplate
   def testUncorrelatedScalar(): Unit = {
     checkResult("select (select 1) as b", Seq(row(1)))
 
@@ -1065,14 +856,14 @@ class JoinITCase(expectedJoinType: JoinType) extends BatchTestBase {
     checkResult("select (select 1 as a) as b", Seq(row(1)))
   }
 
-  @Test
+  @TestTemplate
   def testEqualWithAggScalar(): Unit = {
     checkResult(
       "select a, b from l where a = (select distinct (c) from r where c = 2)",
       Seq(row(2, 1.0), row(2, 1.0)))
   }
 
-  @Test
+  @TestTemplate
   def testComparisonsScalar(): Unit = {
     if (expectedJoinType == NestedLoopJoin) {
       checkEmptyResult("select a, b from l where a = (select c from r where 1 = 2)")
@@ -1087,7 +878,7 @@ class JoinITCase(expectedJoinType: JoinType) extends BatchTestBase {
       row(2, 1.0) :: row(2, 1.0) :: Nil)
   }
 
-  @Test
+  @TestTemplate
   def testJoinWithNull(): Unit = {
     // TODO enable all
     // TODO not support same source until set lazy_from_source
@@ -1135,7 +926,7 @@ class JoinITCase(expectedJoinType: JoinType) extends BatchTestBase {
     }
   }
 
-  @Test
+  @TestTemplate
   def testSingleRowJoin(): Unit = {
     if (expectedJoinType == NestedLoopJoin) {
       checkResult(
@@ -1176,7 +967,7 @@ class JoinITCase(expectedJoinType: JoinType) extends BatchTestBase {
     }
   }
 
-  @Test
+  @TestTemplate
   def testNonEmptyTableJoinEmptyTable(): Unit = {
     if (expectedJoinType == NestedLoopJoin) {
       checkResult(
@@ -1205,7 +996,7 @@ class JoinITCase(expectedJoinType: JoinType) extends BatchTestBase {
     }
   }
 
-  @Test
+  @TestTemplate
   def testEmptyTableJoinEmptyTable(): Unit = {
     if (expectedJoinType == NestedLoopJoin) {
       checkResult(
@@ -1238,7 +1029,7 @@ class JoinITCase(expectedJoinType: JoinType) extends BatchTestBase {
     }
   }
 
-  @Test
+  @TestTemplate
   def testJoinCollation(): Unit = {
     checkResult(
       """
@@ -1285,7 +1076,7 @@ class JoinITCase(expectedJoinType: JoinType) extends BatchTestBase {
     )
   }
 
-  @Test
+  @TestTemplate
   def testJoinWithUDFFilter(): Unit = {
     registerFunction("funcWithOpen", new FuncWithOpen)
     checkResult(
@@ -1294,7 +1085,7 @@ class JoinITCase(expectedJoinType: JoinType) extends BatchTestBase {
     )
   }
 
-  @Test
+  @TestTemplate
   def testJoinWithFilterPushDown(): Unit = {
     checkResult(
       """
@@ -1354,9 +1145,117 @@ class JoinITCase(expectedJoinType: JoinType) extends BatchTestBase {
         row(6, null, 1, 6, null, 1),
         row(null, null, null, 4, 1.0, 1))
     )
+
+    checkResult(
+      """
+        |select * from
+        | l inner join r on a = c where c IS NULL
+        |""".stripMargin,
+      Seq()
+    )
+
+    checkResult(
+      """
+        |select * from
+        | l inner join r on a = c where c = NULL
+        |""".stripMargin,
+      Seq()
+    )
+
+    if (expectedJoinType == NestedLoopJoin) {
+      // For inner join, we will push c = 3 into left side l by
+      // derived from a = c and c = 3.
+      checkResult(
+        """
+          |select * from
+          | l inner join r on a = c where c = 3
+          |""".stripMargin,
+        Seq(
+          row(3, 3.0, 3, 2.0)
+        )
+      )
+
+      // For left join, we will push c = 3 into left side l by
+      // derived from a = c and c = 3.
+      checkResult(
+        """
+          |select * from
+          | l left join r on a = c where c = 3
+          |""".stripMargin,
+        Seq(
+          row(3, 3.0, 3, 2.0)
+        )
+      )
+    }
+
+    // For left/right join, we will only push equal filter condition into
+    // other side by derived from join condition and filter condition. So,
+    // c IS NULL cannot be push into left side.
+    checkResult(
+      """
+        |select * from
+        | l left join r on a = c where c IS NULL
+        |""".stripMargin,
+      Seq(
+        row(1, 2.0, null, null),
+        row(1, 2.0, null, null),
+        row(null, 5.0, null, null),
+        row(null, null, null, null)
+      )
+    )
+
+    checkResult(
+      """
+        |select * from
+        | l left join r on a = c where c IS NULL AND a <= 1
+        |""".stripMargin,
+      Seq(
+        row(1, 2.0, null, null),
+        row(1, 2.0, null, null)
+      )
+    )
+
+    // For 'c = NULL', all data cannot match this condition.
+    checkResult(
+      """
+        |select * from
+        | l left join r on a = c where c = NULL
+        |""".stripMargin,
+      Seq()
+    )
+
+    // For left/right join, we will only push equal filter condition into
+    // other side by derived from join condition and filter condition. So,
+    // c < 3 cannot be push into left side.
+    checkResult(
+      """
+        |select * from
+        | l left join r on a = c where c < 3 AND a <= 3
+        |""".stripMargin,
+      Seq(
+        row(2, 1.0, 2, 3.0),
+        row(2, 1.0, 2, 3.0),
+        row(2, 1.0, 2, 3.0),
+        row(2, 1.0, 2, 3.0)
+      )
+    )
+
+    // C <> 3 cannot be push into left side.
+    checkResult(
+      """
+        |select * from
+        | l left join r on a = c where c <> 3 AND a <= 3
+        |""".stripMargin,
+      Seq(
+        row(2, 1.0, 2, 3.0),
+        row(2, 1.0, 2, 3.0),
+        row(2, 1.0, 2, 3.0),
+        row(2, 1.0, 2, 3.0)
+      )
+    )
   }
 
-  @Test
+  @TestTemplate
   def testJoinWithJoinConditionPushDown(): Unit = {
     checkResult(
       """
@@ -1436,7 +1335,7 @@ class JoinITCase(expectedJoinType: JoinType) extends BatchTestBase {
 }
 
 object JoinITCase {
-  @Parameterized.Parameters(name = "{0}")
+  @Parameters(name = "expectedJoinType={0}")
   def parameters(): util.Collection[Any] = {
     util.Arrays.asList(
       Array(BroadcastHashJoin),

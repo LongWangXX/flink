@@ -86,7 +86,7 @@ public class RpcSSLAuthITCase extends TestLogger {
             // to test whether the test is still good:
             //   - create actorSystem2 with sslConfig1 (same as actorSystem1) and see that both can
             // connect
-            //   - set 'require-mutual-authentication = off' in the AkkaUtils ssl config section
+            //   - set 'require-mutual-authentication = off' in the ConfigUtils ssl config section
             rpcService1 =
                     RpcSystem.load()
                             .localServiceBuilder(sslConfig1)
@@ -117,12 +117,12 @@ public class RpcSSLAuthITCase extends TestLogger {
         } finally {
             final CompletableFuture<Void> rpcTerminationFuture1 =
                     rpcService1 != null
-                            ? rpcService1.stopService()
+                            ? rpcService1.closeAsync()
                             : CompletableFuture.completedFuture(null);
 
             final CompletableFuture<Void> rpcTerminationFuture2 =
                     rpcService2 != null
-                            ? rpcService2.stopService()
+                            ? rpcService2.closeAsync()
                             : CompletableFuture.completedFuture(null);
 
             FutureUtils.waitForAll(Arrays.asList(rpcTerminationFuture1, rpcTerminationFuture2))

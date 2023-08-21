@@ -32,6 +32,7 @@ import org.apache.flink.table.planner.plan.nodes.exec.ExecNodeContext;
 import org.apache.flink.table.planner.plan.nodes.exec.ExecNodeMetadata;
 import org.apache.flink.table.planner.plan.nodes.exec.InputProperty;
 import org.apache.flink.table.planner.plan.nodes.exec.SingleTransformationTranslator;
+import org.apache.flink.table.planner.plan.nodes.exec.StateMetadata;
 import org.apache.flink.table.planner.plan.nodes.exec.spec.JoinSpec;
 import org.apache.flink.table.planner.plan.nodes.exec.utils.ExecNodeUtil;
 import org.apache.flink.table.planner.plan.utils.JoinUtil;
@@ -46,9 +47,12 @@ import org.apache.flink.table.runtime.operators.join.stream.state.JoinInputSideS
 import org.apache.flink.table.runtime.typeutils.InternalTypeInfo;
 import org.apache.flink.table.types.logical.RowType;
 
-import org.apache.flink.shaded.guava30.com.google.common.collect.Lists;
+import org.apache.flink.shaded.guava31.com.google.common.collect.Lists;
 import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.annotation.JsonCreator;
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.annotation.JsonInclude;
 import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.annotation.JsonProperty;
+
+import javax.annotation.Nullable;
 
 import java.util.List;
 
@@ -72,24 +76,35 @@ public class StreamExecJoin extends ExecNodeBase<RowData>
 
     public static final String JOIN_TRANSFORMATION = "join";
 
+    public static final String LEFT_STATE_NAME = "leftState";
+
+    public static final String RIGHT_STATE_NAME = "rightState";
+
     public static final String FIELD_NAME_JOIN_SPEC = "joinSpec";
-    public static final String FIELD_NAME_LEFT_UNIQUE_KEYS = "leftUniqueKeys";
-    public static final String FIELD_NAME_RIGHT_UNIQUE_KEYS = "rightUniqueKeys";
+    public static final String FIELD_NAME_LEFT_UPSERT_KEYS = "leftUpsertKeys";
+    public static final String FIELD_NAME_RIGHT_UPSERT_KEYS = "rightUpsertKeys";
 
     @JsonProperty(FIELD_NAME_JOIN_SPEC)
     private final JoinSpec joinSpec;
 
-    @JsonProperty(FIELD_NAME_LEFT_UNIQUE_KEYS)
-    private final List<int[]> leftUniqueKeys;
+    @JsonProperty(FIELD_NAME_LEFT_UPSERT_KEYS)
+    @JsonInclude(JsonInclude.Include.NON_DEFAULT)
+    private final List<int[]> leftUpsertKeys;
 
-    @JsonProperty(FIELD_NAME_RIGHT_UNIQUE_KEYS)
-    private final List<int[]> rightUniqueKeys;
+    @JsonProperty(FIELD_NAME_RIGHT_UPSERT_KEYS)
+    @JsonInclude(JsonInclude.Include.NON_DEFAULT)
+    private final List<int[]> rightUpsertKeys;
+
+    @Nullable
+    @JsonProperty(FIELD_NAME_STATE)
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private final List<StateMetadata> stateMetadataList;
 
     public StreamExecJoin(
             ReadableConfig tableConfig,
             JoinSpec joinSpec,
-            List<int[]> leftUniqueKeys,
-            List<int[]> rightUniqueKeys,
+            List<int[]> leftUpsertKeys,
+            List<int[]> rightUpsertKeys,
             InputProperty leftInputProperty,
             InputProperty rightInputProperty,
             RowType outputType,
@@ -99,8 +114,10 @@ public class StreamExecJoin extends ExecNodeBase<RowData>
                 ExecNodeContext.newContext(StreamExecJoin.class),
                 ExecNodeContext.newPersistedConfig(StreamExecJoin.class, tableConfig),
                 joinSpec,
-                leftUniqueKeys,
-                rightUniqueKeys,
+                leftUpsertKeys,
+                rightUpsertKeys,
+                StateMetadata.getMultiInputOperatorDefaultMeta(
+                        tableConfig, LEFT_STATE_NAME, RIGHT_STATE_NAME),
                 Lists.newArrayList(leftInputProperty, rightInputProperty),
                 outputType,
                 description);
@@ -112,16 +129,18 @@ public class StreamExecJoin extends ExecNodeBase<RowData>
             @JsonProperty(FIELD_NAME_TYPE) ExecNodeContext context,
             @JsonProperty(FIELD_NAME_CONFIGURATION) ReadableConfig persistedConfig,
             @JsonProperty(FIELD_NAME_JOIN_SPEC) JoinSpec joinSpec,
-            @JsonProperty(FIELD_NAME_LEFT_UNIQUE_KEYS) List<int[]> leftUniqueKeys,
-            @JsonProperty(FIELD_NAME_RIGHT_UNIQUE_KEYS) List<int[]> rightUniqueKeys,
+            @JsonProperty(FIELD_NAME_LEFT_UPSERT_KEYS) List<int[]> leftUpsertKeys,
+            @JsonProperty(FIELD_NAME_RIGHT_UPSERT_KEYS) List<int[]> rightUpsertKeys,
+            @Nullable @JsonProperty(FIELD_NAME_STATE) List<StateMetadata> stateMetadataList,
             @JsonProperty(FIELD_NAME_INPUT_PROPERTIES) List<InputProperty> inputProperties,
             @JsonProperty(FIELD_NAME_OUTPUT_TYPE) RowType outputType,
             @JsonProperty(FIELD_NAME_DESCRIPTION) String description) {
         super(id, context, persistedConfig, inputProperties, outputType, description);
         checkArgument(inputProperties.size() == 2);
         this.joinSpec = checkNotNull(joinSpec);
-        this.leftUniqueKeys = leftUniqueKeys;
-        this.rightUniqueKeys = rightUniqueKeys;
+        this.leftUpsertKeys = leftUpsertKeys;
+        this.rightUpsertKeys = rightUpsertKeys;
+        this.stateMetadataList = stateMetadataList;
     }
 
     @Override
@@ -149,7 +168,7 @@ public class StreamExecJoin extends ExecNodeBase<RowData>
                         planner.getFlinkContext().getClassLoader(),
                         leftTypeInfo,
                         leftJoinKey,
-                        leftUniqueKeys);
+                        leftUpsertKeys);
 
         final InternalTypeInfo<RowData> rightTypeInfo = InternalTypeInfo.of(rightType);
         final JoinInputSideSpec rightInputSpec =
@@ -157,7 +176,7 @@ public class StreamExecJoin extends ExecNodeBase<RowData>
                         planner.getFlinkContext().getClassLoader(),
                         rightTypeInfo,
                         rightJoinKey,
-                        rightUniqueKeys);
+                        rightUpsertKeys);
 
         GeneratedJoinCondition generatedCondition =
                 JoinUtil.generateConditionFunction(
@@ -167,7 +186,10 @@ public class StreamExecJoin extends ExecNodeBase<RowData>
                         leftType,
                         rightType);
 
-        long minRetentionTime = config.getStateRetentionTime();
+        List<Long> leftAndRightStateRetentionTime =
+                StateMetadata.getStateTtlForMultiInputOperator(config, 2, stateMetadataList);
+        long leftStateRetentionTime = leftAndRightStateRetentionTime.get(0);
+        long rightStateRetentionTime = leftAndRightStateRetentionTime.get(1);
 
         AbstractStreamingJoinOperator operator;
         FlinkJoinType joinType = joinSpec.getJoinType();
@@ -181,7 +203,8 @@ public class StreamExecJoin extends ExecNodeBase<RowData>
                             leftInputSpec,
                             rightInputSpec,
                             joinSpec.getFilterNulls(),
-                            minRetentionTime);
+                            leftStateRetentionTime,
+                            rightStateRetentionTime);
         } else {
             boolean leftIsOuter = joinType == FlinkJoinType.LEFT || joinType == FlinkJoinType.FULL;
             boolean rightIsOuter =
@@ -196,7 +219,8 @@ public class StreamExecJoin extends ExecNodeBase<RowData>
                             leftIsOuter,
                             rightIsOuter,
                             joinSpec.getFilterNulls(),
-                            minRetentionTime);
+                            leftStateRetentionTime,
+                            rightStateRetentionTime);
         }
 
         final RowType returnType = (RowType) getOutputType();
@@ -207,7 +231,8 @@ public class StreamExecJoin extends ExecNodeBase<RowData>
                         createTransformationMeta(JOIN_TRANSFORMATION, config),
                         operator,
                         InternalTypeInfo.of(returnType),
-                        leftTransform.getParallelism());
+                        leftTransform.getParallelism(),
+                        false);
 
         // set KeyType and Selector for state
         RowDataKeySelector leftSelect =

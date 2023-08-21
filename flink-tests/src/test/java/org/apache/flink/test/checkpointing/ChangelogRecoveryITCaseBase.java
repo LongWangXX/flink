@@ -93,7 +93,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import static org.apache.flink.runtime.testutils.CommonTestUtils.getLatestCompletedCheckpointPath;
-import static org.apache.flink.shaded.guava30.com.google.common.collect.Iterables.get;
+import static org.apache.flink.shaded.guava31.com.google.common.collect.Iterables.get;
 import static org.apache.flink.test.util.TestUtils.loadCheckpointMetadata;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertSame;
@@ -206,7 +206,7 @@ public abstract class ChangelogRecoveryITCaseBase extends TestLogger {
                                     Collector<Integer> out) {}
                         })
                 .addSink(new DiscardingSink<>());
-        return env.getStreamGraph().getJobGraph(jobId);
+        return env.getStreamGraph().getJobGraph(env.getClass().getClassLoader(), jobId);
     }
 
     protected void waitAndAssert(JobGraph jobGraph) throws Exception {

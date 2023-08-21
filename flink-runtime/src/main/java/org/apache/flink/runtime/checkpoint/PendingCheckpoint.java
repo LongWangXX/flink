@@ -31,6 +31,7 @@ import org.apache.flink.runtime.state.CheckpointStorageLocation;
 import org.apache.flink.runtime.state.CompletedCheckpointStorageLocation;
 import org.apache.flink.runtime.state.StateUtil;
 import org.apache.flink.runtime.state.memory.ByteStreamStateHandle;
+import org.apache.flink.util.CollectionUtil;
 import org.apache.flink.util.ExceptionUtils;
 import org.apache.flink.util.Preconditions;
 
@@ -107,7 +108,10 @@ public class PendingCheckpoint implements Checkpoint {
     /** The checkpoint properties. */
     private final CheckpointProperties props;
 
-    /** The promise to fulfill once the checkpoint has been completed. */
+    /**
+     * The promise to fulfill once the checkpoint has been completed. Note that it will be completed
+     * only after the checkpoint is successfully added to CompletedCheckpointStore.
+     */
     private final CompletableFuture<CompletedCheckpoint> onCompletionPromise;
 
     @Nullable private final PendingCheckpointStats pendingCheckpointStats;
@@ -149,7 +153,9 @@ public class PendingCheckpoint implements Checkpoint {
         this.checkpointTimestamp = checkpointTimestamp;
         this.checkpointPlan = checkNotNull(checkpointPlan);
 
-        this.notYetAcknowledgedTasks = new HashMap<>(checkpointPlan.getTasksToWaitFor().size());
+        this.notYetAcknowledgedTasks =
+                CollectionUtil.newHashMapWithExpectedSize(
+                        checkpointPlan.getTasksToWaitFor().size());
         for (Execution execution : checkpointPlan.getTasksToWaitFor()) {
             notYetAcknowledgedTasks.put(execution.getAttemptId(), execution.getVertex());
         }
@@ -166,7 +172,9 @@ public class PendingCheckpoint implements Checkpoint {
                 operatorCoordinatorsToConfirm.isEmpty()
                         ? Collections.emptySet()
                         : new HashSet<>(operatorCoordinatorsToConfirm);
-        this.acknowledgedTasks = new HashSet<>(checkpointPlan.getTasksToWaitFor().size());
+        this.acknowledgedTasks =
+                CollectionUtil.newHashSetWithExpectedSize(
+                        checkpointPlan.getTasksToWaitFor().size());
         this.onCompletionPromise = checkNotNull(onCompletionPromise);
         this.pendingCheckpointStats = pendingCheckpointStats;
         this.masterTriggerCompletionPromise = checkNotNull(masterTriggerCompletionPromise);
@@ -180,12 +188,6 @@ public class PendingCheckpoint implements Checkpoint {
 
     public JobID getJobId() {
         return jobId;
-    }
-
-    /** @deprecated use {@link #getCheckpointID()} */
-    @Deprecated
-    public long getCheckpointId() {
-        return getCheckpointID();
     }
 
     @Override
@@ -345,8 +347,6 @@ public class PendingCheckpoint implements Checkpoint {
                                 props,
                                 finalizedLocation,
                                 toCompletedCheckpointStats(finalizedLocation));
-
-                onCompletionPromise.complete(completed);
 
                 // mark this pending checkpoint as disposed, but do NOT drop the state
                 dispose(false, checkpointsCleaner, postCleanup, executor);

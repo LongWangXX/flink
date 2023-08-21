@@ -33,19 +33,21 @@ import org.apache.flink.runtime.rest.util.TestRestServerEndpoint;
 import org.apache.flink.testutils.TestingUtils;
 import org.apache.flink.testutils.executor.TestExecutorExtension;
 import org.apache.flink.testutils.junit.extensions.ContextClassLoaderExtension;
-import org.apache.flink.util.TestLogger;
+import org.apache.flink.util.TestLoggerExtension;
 
 import org.apache.flink.shaded.netty4.io.netty.handler.codec.http.HttpResponseStatus;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.extension.Extension;
 import org.junit.jupiter.api.extension.RegisterExtension;
 
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ScheduledExecutorService;
 
@@ -54,7 +56,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
 /** IT cases for {@link RestClient} and {@link RestServerEndpoint}. */
-public class RestExternalHandlersITCase extends TestLogger {
+@ExtendWith(TestLoggerExtension.class)
+class RestExternalHandlersITCase {
 
     private static final Time timeout = Time.seconds(10L);
     private static final String REQUEST_URL = "/nonExisting1";
@@ -102,14 +105,14 @@ public class RestExternalHandlersITCase extends TestLogger {
     }
 
     @BeforeEach
-    private void setup() throws Exception {
+    void setup() throws Exception {
         serverEndpoint = TestRestServerEndpoint.builder(config).buildAndStart();
         restClient = new RestClient(config, EXECUTOR_RESOURCE.getExecutor());
         serverAddress = serverEndpoint.getServerAddress();
     }
 
     @AfterEach
-    private void teardown() throws Exception {
+    void teardown() throws Exception {
         if (restClient != null) {
             restClient.shutdown(timeout);
             restClient = null;
@@ -122,21 +125,23 @@ public class RestExternalHandlersITCase extends TestLogger {
     }
 
     @Test
-    void testHandlersMustBeLoaded() throws Exception {
-        assertEquals(serverEndpoint.inboundChannelHandlerFactories.size(), 2);
+    void testHandlersMustBeLoaded() {
+        final List<InboundChannelHandlerFactory> inboundChannelHandlerFactories =
+                serverEndpoint.getInboundChannelHandlerFactories();
+        assertEquals(inboundChannelHandlerFactories.size(), 2);
         assertTrue(
-                serverEndpoint.inboundChannelHandlerFactories.get(0)
-                        instanceof Prio1InboundChannelHandlerFactory);
+                inboundChannelHandlerFactories.get(0) instanceof Prio1InboundChannelHandlerFactory);
         assertTrue(
-                serverEndpoint.inboundChannelHandlerFactories.get(1)
-                        instanceof Prio0InboundChannelHandlerFactory);
+                inboundChannelHandlerFactories.get(1) instanceof Prio0InboundChannelHandlerFactory);
 
-        assertEquals(restClient.outboundChannelHandlerFactories.size(), 2);
+        final List<OutboundChannelHandlerFactory> outboundChannelHandlerFactories =
+                restClient.getOutboundChannelHandlerFactories();
+        assertEquals(outboundChannelHandlerFactories.size(), 2);
         assertTrue(
-                restClient.outboundChannelHandlerFactories.get(0)
+                outboundChannelHandlerFactories.get(0)
                         instanceof Prio1OutboundChannelHandlerFactory);
         assertTrue(
-                restClient.outboundChannelHandlerFactories.get(1)
+                outboundChannelHandlerFactories.get(1)
                         instanceof Prio0OutboundChannelHandlerFactory);
 
         try {

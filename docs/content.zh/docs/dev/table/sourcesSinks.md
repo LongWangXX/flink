@@ -24,113 +24,83 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# User-defined Sources & Sinks
+# 用户自定义 Sources & Sinks
 
-_Dynamic tables_ are the core concept of Flink's Table & SQL API for processing both bounded and unbounded
-data in a unified fashion.
+*动态表*是 Flink Table & SQL API的核心概念，用于统一有界和无界数据的处理。
 
-Because dynamic tables are only a logical concept, Flink does not own the data itself. Instead, the content
-of a dynamic table is stored in external systems (such as databases, key-value stores, message queues) or files.
+动态表只是一个逻辑概念，因此 Flink 并不拥有数据。相应的，动态表的内容存储在外部系统（ 如数据库、键值存储、消息队列 ）或文件中。
 
-_Dynamic sources_ and _dynamic sinks_ can be used to read and write data from and to an external system. In
-the documentation, sources and sinks are often summarized under the term _connector_.
+*动态 sources* 和*动态 sinks* 可用于从外部系统读取数据和向外部系统写入数据。在文档中，sources 和 sinks 常在术语*连接器* 下进行总结。
 
-Flink provides pre-defined connectors for Kafka, Hive, and different file systems. See the [connector section]({{< ref "docs/connectors/table/overview" >}})
-for more information about built-in table sources and sinks.
+Flink 为 Kafka、Hive 和不同的文件系统提供了预定义的连接器。有关内置 table sources 和 sinks 的更多信息，请参阅[连接器部分]({{< ref "docs/connectors/table/overview" >}})
 
-This page focuses on how to develop a custom, user-defined connector.
+本页重点介绍如何开发自定义的用户定义连接器。
 
-Overview
+{{< hint warning >}}从 Flink v1.16 开始, TableEnvironment 引入了一个用户类加载器，以在 table 程序、SQL Client、SQL Gateway 中保持一致的类加载行为。该类加载器会统一管理所有的用户 jar 包，包括通过 `ADD JAR` 或 `CREATE FUNCTION .. USING JAR ..` 添加的 jar 资源。
+ 在用户自定义连接器中，应该将 `Thread.currentThread().getContextClassLoader()` 替换成该用户类加载器去加载类。否则，可能会发生 `ClassNotFoundException` 的异常。该用户类加载器可以通过 `DynamicTableFactory.Context` 获得。
+{{< /hint >}}
+
+概述
 --------
 
-In many cases, implementers don't need to create a new connector from scratch but would like to slightly
-modify existing connectors or hook into the existing stack. In other cases, implementers would like to
-create specialized connectors.
+在许多情况下，开发人员不需要从头开始创建新的连接器，而是希望稍微修改现有的连接器或 hook 到现有的 stack。在其他情况下，开发人员希望创建专门的连接器。
 
-This section helps for both kinds of use cases. It explains the general architecture of table connectors
-from pure declaration in the API to runtime code that will be executed on the cluster.
+本节对这两种用例都有帮助。它解释了表连接器的一般体系结构，从 API 中的纯粹声明到在集群上执行的运行时代码
 
-The filled arrows show how objects are transformed to other objects from one stage to the next stage during
-the translation process.
+实心箭头展示了在转换过程中对象如何从一个阶段到下一个阶段转换为其他对象。
 
 {{< img width="90%" src="/fig/table_connectors.svg" alt="Translation of table connectors" >}}
 
-### Metadata
+### 元数据
 
-Both Table API and SQL are declarative APIs. This includes the declaration of tables. Thus, executing
-a `CREATE TABLE` statement results in updated metadata in the target catalog.
+Table API 和 SQL 都是声明式 API。这包括表的声明。因此，执行 `CREATE TABLE` 语句会导致目标 catalog 中的元数据更新。
 
-For most catalog implementations, physical data in the external system is not modified for such an
-operation. Connector-specific dependencies don't have to be present in the classpath yet. The options declared
-in the `WITH` clause are neither validated nor otherwise interpreted.
+对于大多数 catalog 实现，外部系统中的物理数据不会针对此类操作进行修改。特定于连接器的依赖项不必存在于类路径中。在 `WITH` 子句中声明的选项既不被验证也不被解释。
 
-The metadata for dynamic tables (created via DDL or provided by the catalog) is represented as instances
-of `CatalogTable`. A table name will be resolved into a `CatalogTable` internally when necessary.
+动态表的元数据（ 通过 DDL 创建或由 catalog 提供 ）表示为 `CatalogTable` 的实例。必要时，表名将在内部解析为 `CatalogTable`。
 
-### Planning
+### 解析器
 
-When it comes to planning and optimization of the table program, a `CatalogTable` needs to be resolved
-into a `DynamicTableSource` (for reading in a `SELECT` query) and `DynamicTableSink` (for writing in
-an `INSERT INTO` statement).
+在解析和优化以 table 编写的程序时，需要将 `CatalogTable` 解析为 `DynamicTableSource`（ 用于在 `SELECT` 查询中读取 ）和 `DynamicTableSink`（ 用于在 `INSERT INTO` 语句中写入 ）。
 
-`DynamicTableSourceFactory` and `DynamicTableSinkFactory` provide connector-specific logic for translating
-the metadata of a `CatalogTable` into instances of `DynamicTableSource` and `DynamicTableSink`. In most
-of the cases, a factory's purpose is to validate options (such as `'port' = '5022'` in the example),
-configure encoding/decoding formats (if required), and create a parameterized instance of the table
-connector.
+`DynamicTableSourceFactory` 和 `DynamicTableSinkFactory` 提供连接器特定的逻辑，用于将 `CatalogTable` 的元数据转换为 `DynamicTableSource` 和 `DynamicTableSink` 的实例。在大多数情况下，以工厂模式设计的目的是验证选项（例如示例中的 `'port'` = `'5022'` ），配置编码解码格式（ 如果需要 ），并创建表连接器的参数化实例。
 
-By default, instances of `DynamicTableSourceFactory` and `DynamicTableSinkFactory` are discovered using
-Java's [Service Provider Interfaces (SPI)](https://docs.oracle.com/javase/tutorial/sound/SPI-intro.html). The
-`connector` option (such as `'connector' = 'custom'` in the example) must correspond to a valid factory
-identifier.
+默认情况下，`DynamicTableSourceFactory` 和 `DynamicTableSinkFactory` 的实例是使用 Java的 [Service Provider Interfaces (SPI)] (https://docs.oracle.com/javase/tutorial/sound/SPI-intro.html) 发现的。 `connector` 选项（例如示例中的 `'connector' = 'custom'`）必须对应于有效的工厂标识符。
 
-Although it might not be apparent in the class naming, `DynamicTableSource` and `DynamicTableSink`
-can also be seen as stateful factories that eventually produce concrete runtime implementation for reading/writing
-the actual data.
 
-The planner uses the source and sink instances to perform connector-specific bidirectional communication
-until an optimal logical plan could be found. Depending on the optionally declared ability interfaces (e.g.
-`SupportsProjectionPushDown` or `SupportsOverwrite`), the planner might apply changes to an instance and
-thus mutate the produced runtime implementation.
+尽管在类命名中可能不明显，但 `DynamicTableSource` 和 `DynamicTableSink` 也可以被视为有状态的工厂，它们最终会产生具体的运行时实现来读写实际数据。
 
-### Runtime
+规划器使用 source 和 sink 实例来执行连接器特定的双向通信，直到找到最佳逻辑规划。取决于声明可选的接口（ 例如 `SupportsProjectionPushDown` 或 `SupportsOverwrite`），规划器可能会将更改应用于实例并且改变产生的运行时实现。
 
-Once the logical planning is complete, the planner will obtain the _runtime implementation_ from the table
-connector. Runtime logic is implemented in Flink's core connector interfaces such as `InputFormat` or `SourceFunction`.
+### 运行时的实现
 
-Those interfaces are grouped by another level of abstraction as subclasses of `ScanRuntimeProvider`,
-`LookupRuntimeProvider`, and `SinkRuntimeProvider`.
+一旦逻辑规划完成，规划器将从表连接器获取 *runtime implementation*。运行时逻辑在 Flink 的核心连接器接口中实现，例如 `InputFormat` 或 `SourceFunction`。
 
-For example, both `OutputFormatProvider` (providing `org.apache.flink.api.common.io.OutputFormat`) and `SinkFunctionProvider` (providing `org.apache.flink.streaming.api.functions.sink.SinkFunction`) are concrete instances of `SinkRuntimeProvider`
-that the planner can handle.
+这些接口按另一个抽象级别被分组为 `ScanRuntimeProvider`、`LookupRuntimeProvider` 和 `SinkRuntimeProvider` 的子类。
+
+例如，`OutputFormatProvider`（ 提供 `org.apache.flink.api.common.io.OutputFormat` ）和 `SinkFunctionProvider`（ 提供`org.apache.flink.streaming.api.functions.sink.SinkFunction`）都是规划器可以处理的 `SinkRuntimeProvider` 具体实例。
 
 {{< top >}}
 
 
-Project Configuration
+项目配置
 ---------------------
 
-If you want to implement a custom connector or a custom format, the following dependency is usually
-sufficient:
+如果要实现自定义连接器或自定义格式，通常以下依赖项就足够了：
 
 {{< artifact_tabs flink-table-common withProvidedScope >}}
 
-If you want to develop a connector that needs to bridge with DataStream APIs (i.e. if you want to adapt
-a DataStream connector to the Table API), you need to add this dependency:
+如果你想开发一个需要与 DataStream API 桥接的连接器（ 即：如果你想将 DataStream 连接器适配到 Table API），你需要添加此依赖项：
 
 {{< artifact_tabs flink-table-api-java-bridge withProvidedScope >}}
 
-When developing the connector/format, we suggest shipping both a thin JAR and an uber JAR, so users
-can easily load the uber JAR in the SQL client or in the Flink distribution and start using it.
-The uber JAR should include all the third-party dependencies of the connector,
-excluding the table dependencies listed above.
+在开发 connector/format 时，我们建议同时提供 Thin JAR 和 uber JAR，以便用户可以轻松地在 SQL 客户端或 Flink 发行版中加载 uber JAR 并开始使用它。 uber JAR 应该包含连接器的所有第三方依赖，不包括上面列出的表依赖。
 
 {{< hint warning >}}
-You should not depend on `flink-table-planner{{< scala_version >}}` in production code.
-With the new module `flink-table-planner-loader` introduced in Flink 1.15, the
-application's classpath will not have direct access to `org.apache.flink.table.planner` classes anymore.
-If you need a feature available only internally within the `org.apache.flink.table.planner` package and subpackages, please open an issue.
-To learn more, check out [Anatomy of Table Dependencies]({{< ref "docs/dev/configuration/advanced" >}}#anatomy-of-table-dependencies).
+你不应该在生产代码中依赖 `flink-table-planner{{< scala_version >}}`。
+使用 Flink 1.15 中引入的新模块 `flink-table-planner-loader`，应用程序的类路径将不再直接访问 `org.apache.flink.table.planner` 类。
+如果你需要 `org.apache.flink.table.planner` 的包和子包内部可用的功能，请开启一个 issue。要了解更多信息，请查看
+[Table 依赖解读]({{< ref "docs/dev/configuration/advanced" >}}#anatomy-of-table-dependencies)。
 {{< /hint >}}
 
 <a name="extension-points"></a>
@@ -245,6 +215,10 @@ Flink 会对工厂类逐个进行检查，确保其“标识符”是全局唯�
         <td>{{< gh_link file="flink-table/flink-table-common/src/main/java/org/apache/flink/table/connector/source/abilities/SupportsSourceWatermark.java" name="SupportsSourceWatermark" >}}</td>
         <td>支持使用 <code>ScanTableSource</code> 中提供的水印策略。当使用 <code>CREATE TABLE</code> DDL 时，<可以使用></可以使用> <code>SOURCE_WATERMARK()</code> 来告诉 planner 调用这个接口中的水印策略方法。</td>
     </tr>
+    <tr>
+        <td>{{< gh_link file="flink-table/flink-table-common/src/main/java/org/apache/flink/table/connector/source/abilities/SupportsRowLevelModificationScan.java" name="SupportsRowLevelModificationScan" >}}</td>
+        <td>支持将读数据的上下文 <code>RowLevelModificationScanContext</code> 从 <code>ScanTableSource</code> 传递给实现了 <code>SupportsRowLevelDelete</code>，<code>SupportsRowLevelUpdate</code> 的 sink 端。
+    </tr>
     </tbody>
 </table>
 
@@ -286,11 +260,27 @@ Flink 会对工厂类逐个进行检查，确保其“标识符”是全局唯�
     </tr>
     <tr>
         <td>{{< gh_link file="flink-table/flink-table-common/src/main/java/org/apache/flink/table/connector/sink/abilities/SupportsPartitioning.java" name="SupportsPartitioning" >}}</td>
-        <td>支持 <code>DynamicTableSink</code> 写入元数据列。</td>
+        <td>支持 <code>DynamicTableSink</code> 写入分区数据。</td>
     </tr>
     <tr>
         <td>{{< gh_link file="flink-table/flink-table-common/src/main/java/org/apache/flink/table/connector/sink/abilities/SupportsWritingMetadata.java" name="SupportsWritingMetadata" >}}</td>
-        <td>支持 <code>DynamicTableSource</code> 写入元数据列。sink 端会在消费数据行时，在最后接受相应的元数据信息并进行持久化，其中包括元数据的格式信息。</td>
+        <td>支持 <code>DynamicTableSink</code> 写入元数据列。Sink 端会在消费数据行时，在最后接受相应的元数据信息并进行持久化，其中包括元数据的格式信息。</td>
+    </tr>
+    <tr>
+        <td>{{< gh_link file="flink-table/flink-table-common/src/main/java/org/apache/flink/table/connector/sink/abilities/SupportsDeletePushDown.java" name="SupportsDeletePushDown" >}}</td>
+        <td>支持将 <code>DELETE</code> 语句中的过滤条件下推到 <code>DynamicTableSink</code>，sink 端可以直接根据过滤条件来删除数据。</td>
+    </tr>
+    <tr>
+        <td>{{< gh_link file="flink-table/flink-table-common/src/main/java/org/apache/flink/table/connector/sink/abilities/SupportsRowLevelDelete.java" name="SupportsRowLevelDelete" >}}</td>
+        <td>支持 <code>DynamicTableSink</code> 根据行级别的变更来删除已有的数据。该接口的实现者需要告诉 Planner 如何产生这些行变更，并且需要消费这些行变更从而达到删除数据的目的。</td>
+    </tr>
+    <tr>
+        <td>{{< gh_link file="flink-table/flink-table-common/src/main/java/org/apache/flink/table/connector/sink/abilities/SupportsRowLevelUpdate.java" name="SupportsRowLevelUpdate" >}}</td>
+        <td>支持 <code>DynamicTableSink</code> 根据行级别的变更来更新已有的数据。该接口的实现者需要告诉 Planner 如何产生这些行变更，并且需要消费这些行变更从而达到更新数据的目的。</td>
+    </tr>
+    <tr>
+        <td>{{< gh_link file="flink-table/flink-table-common/src/main/java/org/apache/flink/table/connector/sink/abilities/SupportsStaging.java" name="SupportsStaging" >}}</td>
+        <td>支持 <code>DynamicTableSink</code> 提供 CTAS(CREATE TABLE AS SELECT) 或 RTAS([CREATE OR] REPLACE TABLE AS SELECT) 的原子性语义。该接口的实现者需要返回一个提供原子性语义实现的 <code>StagedTable</code> 对象。</td>
     </tr>
     </tbody>
 </table>

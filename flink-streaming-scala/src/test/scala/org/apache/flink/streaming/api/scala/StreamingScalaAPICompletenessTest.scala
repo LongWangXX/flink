@@ -20,7 +20,7 @@ package org.apache.flink.streaming.api.scala
 import org.apache.flink.api.scala.completeness.ScalaAPICompletenessTestBase
 import org.apache.flink.streaming.api.datastream.{DataStream => JavaStream}
 
-import org.junit.Test
+import org.junit.jupiter.api.Test
 
 import java.lang.reflect.Method
 
@@ -53,6 +53,8 @@ class StreamingScalaAPICompletenessTest extends ScalaAPICompletenessTestBase {
       "org.apache.flink.streaming.api.datastream.AllWindowedStream.getInputType",
       "org.apache.flink.streaming.api.datastream.KeyedStream.getKeySelector",
       "org.apache.flink.streaming.api.environment.StreamExecutionEnvironment.isChainingEnabled",
+      "org.apache.flink.streaming.api.environment.StreamExecutionEnvironment." +
+        "isChainingOfOperatorsWithDifferentMaxParallelismEnabled",
       "org.apache.flink.streaming.api.environment.StreamExecutionEnvironment." +
         "getStateHandleProvider",
       "org.apache.flink.streaming.api.environment.StreamExecutionEnvironment.getCheckpointInterval",

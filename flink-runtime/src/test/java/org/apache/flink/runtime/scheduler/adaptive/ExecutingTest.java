@@ -47,15 +47,18 @@ import org.apache.flink.runtime.executiongraph.ExecutionVertex;
 import org.apache.flink.runtime.executiongraph.IntermediateResult;
 import org.apache.flink.runtime.executiongraph.IntermediateResultPartition;
 import org.apache.flink.runtime.executiongraph.InternalExecutionGraphAccessor;
-import org.apache.flink.runtime.executiongraph.JobInformation;
+import org.apache.flink.runtime.executiongraph.JobVertexInputInfo;
+import org.apache.flink.runtime.executiongraph.MarkPartitionFinishedStrategy;
 import org.apache.flink.runtime.executiongraph.TaskExecutionStateTransition;
 import org.apache.flink.runtime.executiongraph.TestingDefaultExecutionGraphBuilder;
 import org.apache.flink.runtime.executiongraph.failover.flip1.partitionrelease.PartitionGroupReleaseStrategy;
+import org.apache.flink.runtime.failure.FailureEnricherUtils;
 import org.apache.flink.runtime.io.network.partition.JobMasterPartitionTracker;
 import org.apache.flink.runtime.jobgraph.IntermediateDataSetID;
 import org.apache.flink.runtime.jobgraph.IntermediateResultPartitionID;
 import org.apache.flink.runtime.jobgraph.JobVertex;
 import org.apache.flink.runtime.jobgraph.JobVertexID;
+import org.apache.flink.runtime.metrics.groups.UnregisteredMetricGroups;
 import org.apache.flink.runtime.operators.coordination.CoordinatorStoreImpl;
 import org.apache.flink.runtime.scheduler.DefaultVertexParallelismInfo;
 import org.apache.flink.runtime.scheduler.ExecutionGraphHandler;
@@ -69,8 +72,6 @@ import org.apache.flink.runtime.shuffle.ShuffleMaster;
 import org.apache.flink.runtime.taskmanager.TaskExecutionState;
 import org.apache.flink.testutils.TestingUtils;
 import org.apache.flink.testutils.executor.TestExecutorResource;
-import org.apache.flink.types.Either;
-import org.apache.flink.util.SerializedValue;
 import org.apache.flink.util.TestLogger;
 
 import org.junit.ClassRule;
@@ -84,6 +85,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
@@ -193,7 +195,8 @@ public class ExecutingTest extends TestLogger {
                         assertThat(failingArguments.getFailureCause().getMessage(), is(failureMsg));
                     }));
             ctx.setHowToHandleFailure(FailureResult::canNotRestart);
-            exec.handleGlobalFailure(new RuntimeException(failureMsg));
+            exec.handleGlobalFailure(
+                    new RuntimeException(failureMsg), FailureEnricherUtils.EMPTY_FAILURE_LABELS);
         }
     }
 
@@ -206,7 +209,9 @@ public class ExecutingTest extends TestLogger {
                     (restartingArguments ->
                             assertThat(restartingArguments.getBackoffTime(), is(duration))));
             ctx.setHowToHandleFailure((f) -> FailureResult.canRestart(f, duration));
-            exec.handleGlobalFailure(new RuntimeException("Recoverable error"));
+            exec.handleGlobalFailure(
+                    new RuntimeException("Recoverable error"),
+                    FailureEnricherUtils.EMPTY_FAILURE_LABELS);
         }
     }
 
@@ -258,7 +263,7 @@ public class ExecutingTest extends TestLogger {
                         assertThat(restartingArguments.getBackoffTime(), is(Duration.ZERO));
                     });
             ctx.setCanScaleUp(() -> true);
-            exec.notifyNewResourcesAvailable();
+            exec.onNewResourcesAvailable();
         }
     }
 
@@ -267,7 +272,7 @@ public class ExecutingTest extends TestLogger {
         try (MockExecutingContext ctx = new MockExecutingContext()) {
             Executing exec = new ExecutingStateBuilder().build(ctx);
             ctx.setCanScaleUp(() -> false);
-            exec.notifyNewResourcesAvailable();
+            exec.onNewResourcesAvailable();
             ctx.assertNoStateTransition();
         }
     }
@@ -295,7 +300,8 @@ public class ExecutingTest extends TestLogger {
             returnsFailedStateExecutionGraph.registerExecution(execution);
             TaskExecutionStateTransition taskExecutionStateTransition =
                     createFailingStateTransition(execution.getAttemptId(), exception);
-            exec.updateTaskExecutionState(taskExecutionStateTransition);
+            exec.updateTaskExecutionState(
+                    taskExecutionStateTransition, FailureEnricherUtils.EMPTY_FAILURE_LABELS);
         }
     }
 
@@ -321,7 +327,8 @@ public class ExecutingTest extends TestLogger {
             returnsFailedStateExecutionGraph.registerExecution(execution);
             TaskExecutionStateTransition taskExecutionStateTransition =
                     createFailingStateTransition(execution.getAttemptId(), exception);
-            exec.updateTaskExecutionState(taskExecutionStateTransition);
+            exec.updateTaskExecutionState(
+                    taskExecutionStateTransition, FailureEnricherUtils.EMPTY_FAILURE_LABELS);
         }
     }
 
@@ -344,7 +351,8 @@ public class ExecutingTest extends TestLogger {
             returnsFailedStateExecutionGraph.registerExecution(execution);
             TaskExecutionStateTransition taskExecutionStateTransition =
                     createFailingStateTransition(execution.getAttemptId(), exception);
-            exec.updateTaskExecutionState(taskExecutionStateTransition);
+            exec.updateTaskExecutionState(
+                    taskExecutionStateTransition, FailureEnricherUtils.EMPTY_FAILURE_LABELS);
 
             ctx.assertNoStateTransition();
         }
@@ -586,7 +594,7 @@ public class ExecutingTest extends TestLogger {
         }
 
         @Override
-        public boolean canScaleUp(ExecutionGraph executionGraph) {
+        public boolean shouldRescale(ExecutionGraph executionGraph) {
             return canScaleUp.get();
         }
 
@@ -802,7 +810,8 @@ public class ExecutingTest extends TestLogger {
         }
 
         @Override
-        public void handleGlobalFailure(Throwable cause) {}
+        public void handleGlobalFailure(
+                Throwable cause, CompletableFuture<Map<String, String>> failureLabels) {}
 
         @Override
         public Logger getLogger() {
@@ -826,7 +835,8 @@ public class ExecutingTest extends TestLogger {
                     Time.milliseconds(1L),
                     1L,
                     new DefaultSubtaskAttemptNumberStore(Collections.emptyList()),
-                    new CoordinatorStoreImpl());
+                    new CoordinatorStoreImpl(),
+                    UnregisteredMetricGroups.createUnregisteredJobManagerJobMetricGroup());
             mockExecutionVertex = executionVertexSupplier.apply(this);
         }
 
@@ -913,18 +923,6 @@ public class ExecutingTest extends TestLogger {
 
         @Override
         public BlobWriter getBlobWriter() {
-            return null;
-        }
-
-        @Override
-        public Either<SerializedValue<JobInformation>, PermanentBlobKey>
-                getJobInformationOrBlobKey() {
-            return null;
-        }
-
-        @Override
-        public TaskDeploymentDescriptorFactory.PartitionLocationConstraint
-                getPartitionLocationConstraint() {
             return null;
         }
 
@@ -1020,6 +1018,12 @@ public class ExecutingTest extends TestLogger {
         }
 
         @Override
+        public MarkPartitionFinishedStrategy getMarkPartitionFinishedStrategy() {
+            throw new UnsupportedOperationException(
+                    "This method is not supported by the MockInternalExecutionGraphAccessor.");
+        }
+
+        @Override
         public ExecutionGraphID getExecutionGraphID() {
             return new ExecutionGraphID();
         }
@@ -1027,6 +1031,19 @@ public class ExecutingTest extends TestLogger {
         @Override
         public List<ShuffleDescriptor> getClusterPartitionShuffleDescriptors(
                 IntermediateDataSetID intermediateResultPartition) {
+            throw new UnsupportedOperationException(
+                    "This method is not supported by the MockInternalExecutionGraphAccessor.");
+        }
+
+        @Override
+        public JobVertexInputInfo getJobVertexInputInfo(
+                JobVertexID jobVertexId, IntermediateDataSetID resultId) {
+            throw new UnsupportedOperationException(
+                    "This method is not supported by the MockInternalExecutionGraphAccessor.");
+        }
+
+        @Override
+        public TaskDeploymentDescriptorFactory getTaskDeploymentDescriptorFactory() {
             throw new UnsupportedOperationException(
                     "This method is not supported by the MockInternalExecutionGraphAccessor.");
         }

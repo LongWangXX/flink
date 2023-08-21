@@ -31,6 +31,7 @@ CREATE statements are used to register a table/view/function into current or spe
 Flink SQL supports the following CREATE statements for now:
 
 - CREATE TABLE
+- [CREATE OR] REPLACE TABLE
 - CREATE CATALOG
 - CREATE DATABASE
 - CREATE VIEW
@@ -155,7 +156,7 @@ CREATE TABLE [IF NOT EXISTS] [catalog_name.][db_name.]table_name
   [COMMENT table_comment]
   [PARTITIONED BY (partition_column_name1, partition_column_name2, ...)]
   WITH (key1=val1, key2=val2, ...)
-  [ LIKE source_table [( <like_options> )] ]
+  [ LIKE source_table [( <like_options> )] | AS select_query ]
    
 <physical_column_definition>:
   column_name column_type [ <column_constraint> ] [COMMENT column_comment]
@@ -316,7 +317,7 @@ CREATE TABLE MyTable (
   `user_id` BIGINT,
   `price` DOUBLE,
   `quantity` DOUBLE,
-  `cost` AS price * quanitity,  -- evaluate expression and supply the result to queries
+  `cost` AS price * quantity  -- evaluate expression and supply the result to queries
 ) WITH (
   'connector' = 'kafka'
   ...
@@ -482,7 +483,7 @@ CREATE TABLE Orders_in_file (
     `user` BIGINT,
     product STRING,
     order_time_string STRING,
-    order_time AS to_timestamp(order_time)
+    order_time AS to_timestamp(order_time_string)
     
 )
 PARTITIONED BY (`user`) 
@@ -512,6 +513,115 @@ If you provide no like options, `INCLUDING ALL OVERWRITING OPTIONS` will be used
 **NOTE** You cannot control the behavior of merging physical columns. Those will be merged as if you applied the `INCLUDING` strategy.
 
 **NOTE** The `source_table` can be a compound identifier. Thus, it can be a table from a different catalog or database: e.g. `my_catalog.my_db.MyTable` specifies table `MyTable` from catalog `MyCatalog` and database `my_db`; `my_db.MyTable` specifies table `MyTable` from current catalog and database `my_db`.
+
+### `AS select_statement`
+
+Tables can also be created and populated by the results of a query in one create-table-as-select (CTAS) statement. CTAS is the simplest and fastest way to create and insert data into a table with a single command.
+
+There are two parts in CTAS, the SELECT part can be any [SELECT query]({{< ref "docs/dev/table/sql/queries/overview" >}}) supported by Flink SQL. The CREATE part takes the resulting schema from the SELECT part and creates the target table. Similar to `CREATE TABLE`, CTAS requires the required options of the target table must be specified in WITH clause.
+
+The creating table operation of CTAS depends on the target Catalog. For example, Hive Catalog creates the physical table in Hive automatically. But the in-memory catalog registers the table metadata in the client's memory where the SQL is executed.
+
+Consider the example statement below:
+
+```sql
+CREATE TABLE my_ctas_table
+WITH (
+    'connector' = 'kafka',
+    ...
+)
+AS SELECT id, name, age FROM source_table WHERE mod(id, 10) = 0;
+```
+
+The resulting table `my_ctas_table` will be equivalent to create the table and insert the data with the following statement:
+```sql
+CREATE TABLE my_ctas_table (
+    id BIGINT,
+    name STRING,
+    age INT
+) WITH (
+    'connector' = 'kafka',
+    ...
+);
+ 
+INSERT INTO my_ctas_table SELECT id, name, age FROM source_table WHERE mod(id, 10) = 0;
+```
+
+**Note:** CTAS has these restrictions:
+* Does not support creating a temporary table yet.
+* Does not support specifying explicit columns yet.
+* Does not support specifying explicit watermark yet.
+* Does not support creating partitioned table yet.
+* Does not support specifying primary key constraints yet.
+
+**Note:** By default, CTAS is non-atomic which means the table created won't be dropped automatically if occur errors while inserting data into the table.
+
+#### Atomicity
+
+If you want to enable atomicity for CTAS, then you should make sure:
+* The sink has implemented the atomicity semantics for CTAS. You may refer to the doc for the corresponding connector sink to know the atomicity semantics is available or not. For devs who want to implement the atomicity semantics, please refer to the doc [SupportsStaging]({{< ref "docs/dev/table/sourcesSinks" >}}#sink-abilities).
+* Set option [table.rtas-ctas.atomicity-enabled]({{< ref "docs/dev/table/config" >}}#table-rtas-ctas-atomicity-enabled) to `true`.
+
+{{< top >}}
+
+## [CREATE OR] REPLACE TABLE
+```sql
+[CREATE OR] REPLACE TABLE [catalog_name.][db_name.]table_name
+[COMMENT table_comment]
+WITH (key1=val1, key2=val2, ...)
+AS select_query
+```
+
+**Note:** RTAS has the following semantic:
+* REPLACE TABLE AS SELECT statement: the target table to be replaced must exist, otherwise, an exception will be thrown.
+* CREATE OR REPLACE TABLE AS SELECT statement: the target table to be replaced will be created if it does not exist; if it does exist, it'll be replaced.
+
+Tables can be replaced(or created) and populated by the results of a query in one [CREATE OR] REPLACE TABLE AS SELECT(RTAS) statement. RTAS is the simplest and fastest way to replace(or create) and insert data into a table with a single command.
+
+There are two parts in RTAS: the SELECT part can be any [SELECT query]({{< ref "docs/dev/table/sql/queries/overview" >}}) supported by Flink SQL, the `REPLACE TABLE` part takes the resulting schema from the `SELECT` part and replace the target table. Similar to `CREATE TABLE` and `CTAS`, RTAS requires the required options of the target table must be specified in WITH clause.
+
+Consider the example statement below:
+
+```sql
+REPLACE TABLE my_rtas_table
+WITH (
+    'connector' = 'kafka',
+    ...
+)
+AS SELECT id, name, age FROM source_table WHERE mod(id, 10) = 0;
+```
+
+The `REPLACE TABLE AS SELECT` statement is equivalent to first drop the table, then create the table and insert the data with the following statement:
+```sql
+DROP TABLE my_rtas_table;
+
+CREATE TABLE my_rtas_table (
+    id BIGINT,
+    name STRING,
+    age INT
+) WITH (
+    'connector' = 'kafka',
+    ...
+);
+ 
+INSERT INTO my_rtas_table SELECT id, name, age FROM source_table WHERE mod(id, 10) = 0;
+```
+
+**Note:** RTAS has these restrictions:
+
+* Does not support replacing a temporary table yet.
+* Does not support specifying explicit columns yet.
+* Does not support specifying explicit watermark yet.
+* Does not support creating partitioned table yet.
+* Does not support specifying primary key constraints yet.
+
+**Note:** By default, RTAS is non-atomic which means the table won't be dropped or restored to its origin automatically if occur errors while inserting data into the table.
+
+### Atomicity
+
+If you want to enable atomicity for RTAS, then you should make sure:
+* The sink has implemented the atomicity semantics for RTAS. You may refer to the doc for the corresponding connector sink to know the atomicity semantics is available or not. For devs who want to implement the atomicity semantics, please refer to the doc [SupportsStaging]({{< ref "docs/dev/table/sourcesSinks" >}}#sink-abilities).
+* Set option [table.rtas-ctas.atomicity-enabled]({{< ref "docs/dev/table/config" >}}#table-rtas-ctas-atomicity-enabled) to `true`.
 
 {{< top >}}
 
@@ -577,7 +687,8 @@ If the view already exists, nothing happens.
 ```sql
 CREATE [TEMPORARY|TEMPORARY SYSTEM] FUNCTION 
   [IF NOT EXISTS] [catalog_name.][db_name.]function_name 
-  AS identifier [LANGUAGE JAVA|SCALA|PYTHON]
+  AS identifier [LANGUAGE JAVA|SCALA|PYTHON] 
+  [USING JAR '<path_to_filename>.jar' [, JAR '<path_to_filename>.jar']* ]
 ```
 
 Create a catalog function that has catalog and database namespaces with the identifier and optional language tag. If a function with the same name already exists in the catalog, an exception is thrown.
@@ -603,3 +714,9 @@ If the function already exists, nothing happens.
 **LANGUAGE JAVA\|SCALA\|PYTHON**
 
 Language tag to instruct Flink runtime how to execute the function. Currently only JAVA, SCALA and PYTHON are supported, the default language for a function is JAVA. 
+
+**USING**
+
+Specifies the list of jar resources that contain the implementation of the function along with its dependencies. The jar should be located in a local or remote [file system]({{< ref "docs/deployment/filesystems/overview" >}}) such as hdfs/s3/oss which Flink current supports. 
+
+<span class="label label-danger">Attention</span> Currently only JAVA, SCALA language support USING clause.

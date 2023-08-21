@@ -18,7 +18,6 @@
 
 package org.apache.flink.table.runtime.hashtable;
 
-import org.apache.flink.configuration.Configuration;
 import org.apache.flink.core.memory.MemorySegment;
 import org.apache.flink.runtime.io.compression.BlockCompressionFactory;
 import org.apache.flink.runtime.io.disk.iomanager.AbstractChannelReaderInputView;
@@ -27,7 +26,6 @@ import org.apache.flink.runtime.io.disk.iomanager.FileIOChannel;
 import org.apache.flink.runtime.io.disk.iomanager.HeaderlessChannelReaderInputView;
 import org.apache.flink.runtime.io.disk.iomanager.IOManager;
 import org.apache.flink.runtime.memory.MemoryManager;
-import org.apache.flink.table.api.config.ExecutionConfigOptions;
 import org.apache.flink.table.runtime.util.FileChannelUtil;
 import org.apache.flink.table.runtime.util.LazyMemorySegmentPool;
 import org.apache.flink.table.runtime.util.MemorySegmentPool;
@@ -102,6 +100,12 @@ public abstract class BaseHybridHashTable implements MemorySegmentPool {
     public final boolean tryDistinctBuildRow;
 
     /**
+     * In operator fusion codegen case, we don't support spill to disk for broadcast hashjoin, so
+     * this flag is introduced.
+     */
+    protected final boolean spillEnabled;
+
+    /**
      * The recursion depth of the partition that is currently processed. The initial table has a
      * recursion depth of 0. Partitions spilled from a table that is built for a partition with
      * recursion depth <i>n</i> have a recursion depth of <i>n+1</i>.
@@ -127,7 +131,7 @@ public abstract class BaseHybridHashTable implements MemorySegmentPool {
      */
     protected FileIOChannel.Enumerator currentEnumerator;
 
-    protected final boolean compressionEnable;
+    protected final boolean compressionEnabled;
     protected final BlockCompressionFactory compressionCodecFactory;
     protected final int compressionBlockSize;
 
@@ -135,27 +139,23 @@ public abstract class BaseHybridHashTable implements MemorySegmentPool {
     protected transient long spillInBytes;
 
     public BaseHybridHashTable(
-            Configuration conf,
             Object owner,
+            boolean compressionEnabled,
+            int compressionBlockSize,
             MemoryManager memManager,
             long reservedMemorySize,
             IOManager ioManager,
             int avgRecordLen,
             long buildRowCount,
-            boolean tryDistinctBuildRow) {
-
-        // TODO: read compression config from configuration
-        this.compressionEnable =
-                conf.getBoolean(ExecutionConfigOptions.TABLE_EXEC_SPILL_COMPRESSION_ENABLED);
+            boolean tryDistinctBuildRow,
+            boolean spillEnabled) {
+        this.compressionEnabled = compressionEnabled;
         this.compressionCodecFactory =
-                this.compressionEnable
+                this.compressionEnabled
                         ? BlockCompressionFactory.createBlockCompressionFactory(
                                 BlockCompressionFactory.CompressionFactoryName.LZ4.toString())
                         : null;
-        this.compressionBlockSize =
-                (int)
-                        conf.get(ExecutionConfigOptions.TABLE_EXEC_SPILL_COMPRESSION_BLOCK_SIZE)
-                                .getBytes();
+        this.compressionBlockSize = compressionBlockSize;
         this.avgRecordLen = avgRecordLen;
         this.buildRowCount = buildRowCount;
         this.tryDistinctBuildRow = tryDistinctBuildRow;
@@ -174,6 +174,7 @@ public abstract class BaseHybridHashTable implements MemorySegmentPool {
 
         this.segmentSizeBits = MathUtils.log2strict(segmentSize);
         this.segmentSizeMask = segmentSize - 1;
+        this.spillEnabled = spillEnabled;
 
         // open builds the initial table by consuming the build-side input
         this.currentRecursionDepth = 0;
@@ -496,7 +497,7 @@ public abstract class BaseHybridHashTable implements MemorySegmentPool {
                         ioManager,
                         id,
                         retSegments,
-                        compressionEnable,
+                        compressionEnabled,
                         compressionCodecFactory,
                         compressionBlockSize,
                         segmentSize);
@@ -517,7 +518,7 @@ public abstract class BaseHybridHashTable implements MemorySegmentPool {
                         ioManager,
                         id,
                         new LinkedBlockingQueue<>(),
-                        compressionEnable,
+                        compressionEnabled,
                         compressionCodecFactory,
                         compressionBlockSize,
                         segmentSize);
