@@ -38,7 +38,7 @@ import org.apache.flink.runtime.executiongraph.ExecutionJobVertex;
 import org.apache.flink.runtime.executiongraph.ExecutionVertex;
 import org.apache.flink.runtime.executiongraph.IOMetrics;
 import org.apache.flink.runtime.executiongraph.ResultPartitionBytes;
-import org.apache.flink.runtime.executiongraph.failover.flip1.TestRestartBackoffTimeStrategy;
+import org.apache.flink.runtime.executiongraph.failover.TestRestartBackoffTimeStrategy;
 import org.apache.flink.runtime.io.network.partition.JobMasterPartitionTracker;
 import org.apache.flink.runtime.io.network.partition.ResultPartitionType;
 import org.apache.flink.runtime.jobgraph.DistributionPattern;
@@ -54,7 +54,6 @@ import org.apache.flink.runtime.jobmaster.LogicalSlot;
 import org.apache.flink.runtime.jobmaster.TestingLogicalSlotBuilder;
 import org.apache.flink.runtime.jobmaster.slotpool.PhysicalSlotProvider;
 import org.apache.flink.runtime.messages.checkpoint.AcknowledgeCheckpoint;
-import org.apache.flink.runtime.metrics.groups.UnregisteredMetricGroups;
 import org.apache.flink.runtime.scheduler.strategy.ExecutionVertexID;
 import org.apache.flink.runtime.state.CheckpointStorage;
 import org.apache.flink.runtime.state.StateBackend;
@@ -78,10 +77,8 @@ import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 
 import static org.apache.flink.runtime.executiongraph.ExecutionGraphTestUtils.finishJobVertex;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.fail;
 
 /** A utility class to create {@link DefaultScheduler} instances for testing. */
 public class SchedulerTestingUtils {
@@ -108,18 +105,35 @@ public class SchedulerTestingUtils {
             final JobGraph jobGraph,
             @Nullable StateBackend stateBackend,
             @Nullable CheckpointStorage checkpointStorage) {
+        enableCheckpointing(
+                jobGraph,
+                stateBackend,
+                checkpointStorage,
+                Long.MAX_VALUE, // disable periodical checkpointing
+                false);
+    }
+
+    public static void enableCheckpointing(
+            final JobGraph jobGraph,
+            @Nullable StateBackend stateBackend,
+            @Nullable CheckpointStorage checkpointStorage,
+            long checkpointInterval,
+            boolean enableCheckpointsAfterTasksFinish) {
 
         final CheckpointCoordinatorConfiguration config =
-                new CheckpointCoordinatorConfiguration(
-                        Long.MAX_VALUE, // disable periodical checkpointing
-                        DEFAULT_CHECKPOINT_TIMEOUT_MS,
-                        0,
-                        1,
-                        CheckpointRetentionPolicy.NEVER_RETAIN_AFTER_TERMINATION,
-                        false,
-                        false,
-                        0,
-                        0);
+                new CheckpointCoordinatorConfiguration.CheckpointCoordinatorConfigurationBuilder()
+                        .setCheckpointInterval(checkpointInterval)
+                        .setCheckpointTimeout(DEFAULT_CHECKPOINT_TIMEOUT_MS)
+                        .setMinPauseBetweenCheckpoints(0)
+                        .setMaxConcurrentCheckpoints(1)
+                        .setCheckpointRetentionPolicy(
+                                CheckpointRetentionPolicy.NEVER_RETAIN_AFTER_TERMINATION)
+                        .setExactlyOnce(false)
+                        .setUnalignedCheckpointsEnabled(false)
+                        .setTolerableCheckpointFailureNumber(0)
+                        .setCheckpointIdOfIgnoredInFlightData(0)
+                        .setEnableCheckpointsAfterTasksFinish(enableCheckpointsAfterTasksFinish)
+                        .build();
 
         SerializedValue<StateBackend> serializedStateBackend = null;
         if (stateBackend != null) {
@@ -208,7 +222,7 @@ public class SchedulerTestingUtils {
                     scheduler.updateTaskExecutionState(
                             new TaskExecutionState(attemptId, ExecutionState.CANCELED));
 
-            assertTrue("could not switch task to RUNNING", setToRunning);
+            assertThat(setToRunning).as("could not switch task to RUNNING").isTrue();
         }
     }
 
@@ -233,8 +247,9 @@ public class SchedulerTestingUtils {
 
     public static void acknowledgeCurrentCheckpoint(DefaultScheduler scheduler) {
         final CheckpointCoordinator checkpointCoordinator = getCheckpointCoordinator(scheduler);
-        assertEquals(
-                "Coordinator has not ", 1, checkpointCoordinator.getNumberOfPendingCheckpoints());
+        assertThat(checkpointCoordinator.getNumberOfPendingCheckpoints())
+                .as("Coordinator has not ")
+                .isOne();
 
         final PendingCheckpoint pc =
                 checkpointCoordinator.getPendingCheckpoints().values().iterator().next();
@@ -267,10 +282,9 @@ public class SchedulerTestingUtils {
         final CheckpointCoordinator checkpointCoordinator = getCheckpointCoordinator(scheduler);
         checkpointCoordinator.triggerCheckpoint(false);
 
-        assertEquals(
-                "test setup inconsistent",
-                1,
-                checkpointCoordinator.getNumberOfPendingCheckpoints());
+        assertThat(checkpointCoordinator.getNumberOfPendingCheckpoints())
+                .as("test setup inconsistent")
+                .isOne();
         final PendingCheckpoint checkpoint =
                 checkpointCoordinator.getPendingCheckpoints().values().iterator().next();
         final CompletableFuture<CompletedCheckpoint> future = checkpoint.getCompletionFuture();
@@ -278,7 +292,7 @@ public class SchedulerTestingUtils {
         acknowledgePendingCheckpoint(scheduler, checkpoint.getCheckpointID());
 
         CompletedCheckpoint completed = future.getNow(null);
-        assertNotNull("checkpoint not complete", completed);
+        assertThat(completed).withFailMessage("checkpoint not complete").isNotNull();
         return completed;
     }
 
@@ -390,9 +404,7 @@ public class SchedulerTestingUtils {
             JobVertexID jobVertex, ExecutionGraph executionGraph) {
         try {
             executionGraph.initializeJobVertex(
-                    executionGraph.getJobVertex(jobVertex),
-                    System.currentTimeMillis(),
-                    UnregisteredMetricGroups.createUnregisteredJobManagerJobMetricGroup());
+                    executionGraph.getJobVertex(jobVertex), System.currentTimeMillis());
             executionGraph.notifyNewlyInitializedJobVertices(
                     Collections.singletonList(executionGraph.getJobVertex(jobVertex)));
         } catch (JobException exception) {

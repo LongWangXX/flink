@@ -18,6 +18,7 @@
 
 package org.apache.flink.state.api;
 
+import org.apache.flink.api.common.functions.OpenContext;
 import org.apache.flink.api.common.state.ValueState;
 import org.apache.flink.api.common.state.ValueStateDescriptor;
 import org.apache.flink.api.common.typeinfo.Types;
@@ -32,7 +33,7 @@ import org.apache.flink.state.api.functions.KeyedStateReaderFunction;
 import org.apache.flink.state.api.utils.JobResultRetriever;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
-import org.apache.flink.test.util.AbstractTestBase;
+import org.apache.flink.test.util.AbstractTestBaseJUnit4;
 import org.apache.flink.util.AbstractID;
 import org.apache.flink.util.Collector;
 
@@ -60,7 +61,7 @@ import static org.junit.Assert.assertThat;
 
 /** Test the savepoint deep copy. */
 @RunWith(value = Parameterized.class)
-public class SavepointDeepCopyTest extends AbstractTestBase {
+public class SavepointDeepCopyTest extends AbstractTestBaseJUnit4 {
 
     private static final MemorySize FILE_STATE_SIZE_THRESHOLD = new MemorySize(1);
 
@@ -83,7 +84,7 @@ public class SavepointDeepCopyTest extends AbstractTestBase {
         private ValueState<Tuple2<String, String>> state;
 
         @Override
-        public void open(Configuration parameters) {
+        public void open(OpenContext openContext) {
             ValueStateDescriptor<Tuple2<String, String>> descriptor =
                     new ValueStateDescriptor<>("state", Types.TUPLE(Types.STRING, Types.STRING));
             state = getRuntimeContext().getState(descriptor);
@@ -103,10 +104,16 @@ public class SavepointDeepCopyTest extends AbstractTestBase {
         private ValueState<Tuple2<String, String>> state;
 
         @Override
-        public void open(Configuration parameters) {
+        public void open(OpenContext openContext) {
             ValueStateDescriptor<Tuple2<String, String>> stateDescriptor =
                     new ValueStateDescriptor<>("state", Types.TUPLE(Types.STRING, Types.STRING));
             state = getRuntimeContext().getState(stateDescriptor);
+        }
+
+        @Override
+        public void open(Configuration parameters) throws Exception {
+            throw new UnsupportedOperationException(
+                    "This method is deprecated and shouldn't be invoked. Please use open(OpenContext) instead.");
         }
 
         @Override
@@ -136,7 +143,7 @@ public class SavepointDeepCopyTest extends AbstractTestBase {
     public void testSavepointDeepCopy() throws Exception {
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
 
-        DataStream<String> words = env.fromElements(TEXT.split(" "));
+        DataStream<String> words = env.fromData(TEXT.split(" "));
 
         StateBootstrapTransformation<String> transformation =
                 OperatorTransformation.bootstrapWith(words)

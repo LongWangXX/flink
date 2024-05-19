@@ -70,10 +70,10 @@ public class LogicalFile {
     @Nonnull private final PhysicalFile physicalFile;
 
     /** The offset of the physical file that this logical file start from. */
-    private final int startOffset;
+    private final long startOffset;
 
     /** The length of this logical file. */
-    private final int length;
+    private final long length;
 
     /** The id of the subtask that this logical file belongs to. */
     @Nonnull private final SubtaskKey subtaskKey;
@@ -81,8 +81,8 @@ public class LogicalFile {
     public LogicalFile(
             LogicalFileId fileId,
             @Nonnull PhysicalFile physicalFile,
-            int startOffset,
-            int length,
+            long startOffset,
+            long length,
             @Nonnull SubtaskKey subtaskKey) {
         this.fileId = fileId;
         this.physicalFile = physicalFile;
@@ -90,6 +90,7 @@ public class LogicalFile {
         this.length = length;
         this.subtaskKey = subtaskKey;
         physicalFile.incRefCount();
+        physicalFile.incSize(length);
     }
 
     public LogicalFileId getFileId() {
@@ -133,11 +134,11 @@ public class LogicalFile {
         return physicalFile;
     }
 
-    public int getStartOffset() {
+    public long getStartOffset() {
         return startOffset;
     }
 
-    public int getLength() {
+    public long getLength() {
         return length;
     }
 
